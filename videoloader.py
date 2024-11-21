@@ -352,7 +352,7 @@ class VideoDataset(torch.utils.data.Dataset):
 class HMDB:
     path = "/home/steb6/datasets/hmdb51/images"
     traintestlist = "splits/hmdb_ARN"
-    seq_len = 8
+    seq_len = 16
     img_size = 224
     way = 5
     shot = 5
@@ -363,7 +363,7 @@ class HMDB:
 class SSv2:
     path = "/home/steb6/datasets/SSv2/images"
     traintestlist = "splits/ssv2_OTAM"
-    seq_len = 8
+    seq_len = 16
     img_size = 224
     way = 5
     shot = 5
@@ -374,7 +374,7 @@ class SSv2:
 class UCF:
     path = "/home/steb6/datasets/ucf101/images"
     traintestlist = "splits/ucf_ARN"
-    seq_len = 8
+    seq_len = 16
     img_size = 224
     way = 5
     shot = 5

@@ -228,9 +228,10 @@ class VideoDataset(torch.utils.data.Dataset):
 
     """ Set len to large number as we use lots of random tasks. Stopping point controlled in run.py. """
     def __len__(self):
-        c = self.get_train_or_test_db()
-        return 1000000
-        return len(c)
+        if self.train:
+            return 1000000
+        else:
+            return 10000
    
     """ Get the classes used for the current split """
     def get_split_class_list(self):
@@ -359,6 +360,7 @@ class HMDB:
     query_per_class = 4
     split = 3
     debug_loader = False
+    query_per_class_test = 1
 
 class SSv2:
     path = "/home/steb6/datasets/SSv2/images"
@@ -370,6 +372,7 @@ class SSv2:
     query_per_class = 4
     split = 7
     debug_loader = False
+    query_per_class_test = 1
 
 class UCF:
     path = "/home/steb6/datasets/ucf101/images"
@@ -381,6 +384,7 @@ class UCF:
     query_per_class = 4
     split = 3
     debug_loader = False
+    query_per_class_test = 1
 
     
 if __name__ == "__main__":

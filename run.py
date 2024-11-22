@@ -153,7 +153,7 @@ for elem in dataloader:
         for j in range(support_embeddings.size(1)):
             similarity_matrix[i, j] = cosine_similarity(query_embeddings[i], support_embeddings[i, j])
 
-    print(similarity_matrix)
+    # print(similarity_matrix)
     scores = softmax(similarity_matrix)
     l1_loss = cross_entropy(scores, target_labels.long().cuda())
 

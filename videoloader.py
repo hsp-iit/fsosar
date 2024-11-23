@@ -67,6 +67,7 @@ class VideoDataset(torch.utils.data.Dataset):
         self.way=args.way
         self.shot=args.shot
         self.query_per_class=args.query_per_class
+        self.n_eval_steps=args.n_eval_steps
 
         self.train_split = Split()
         self.test_split = Split()
@@ -231,7 +232,7 @@ class VideoDataset(torch.utils.data.Dataset):
         if self.train:
             return 1000000
         else:
-            return 10000
+            return self.n_eval_steps
    
     """ Get the classes used for the current split """
     def get_split_class_list(self):
@@ -361,6 +362,7 @@ class HMDB:
     split = 3
     debug_loader = False
     query_per_class_test = 1
+    n_eval_steps = 10000
 
 class SSv2:
     path = "/home/steb6/datasets/SSv2/images"
@@ -373,6 +375,7 @@ class SSv2:
     split = 7
     debug_loader = False
     query_per_class_test = 1
+    n_eval_steps = 10000
 
 class UCF:
     path = "/home/steb6/datasets/ucf101/images"
@@ -385,6 +388,7 @@ class UCF:
     split = 3
     debug_loader = False
     query_per_class_test = 1
+    n_eval_steps = 10000
 
     
 if __name__ == "__main__":

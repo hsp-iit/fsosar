@@ -12,6 +12,7 @@ import os
 deploy_server = "iit.local" in os.getcwd()
 
 lr = 1e-5
+alpha = 0.3
 log_train_after_steps = 3
 eval_after_steps = 30000 if deploy_server else 3
 step = 0
@@ -114,7 +115,7 @@ for elem in dataloader:
 
     # Optimization
     optimizer.zero_grad()
-    (l1_loss + l2_loss).backward()
+    (l1_loss + alpha*l2_loss).backward()
     optimizer.step()
    
     # Logging
@@ -126,10 +127,10 @@ for elem in dataloader:
         avg_l1_train_loss = sum(l1_train_losses) / len(l1_train_losses)
         avg_l2_train_loss = sum(l2_train_losses) / len(l2_train_losses)
         avg_train_accuracy = sum(train_accuracies) / len(train_accuracies)
-        print(f"Avg L1 Train Loss: {avg_l1_train_loss}, Avg L2 Train Loss: {avg_l2_train_loss}, Avg Train Accuracy: {avg_train_accuracy}")
+        print(f"Avg L1 Train Loss: {avg_l1_train_loss}, Avg L2 Train Loss: {avg_l2_train_loss*alpha}, Avg Train Accuracy: {avg_train_accuracy}")
         if log_wandb:
             wandb.log({"l1_train_loss": avg_l1_train_loss,
-                       "l2_train_loss": avg_l2_train_loss,
+                       "l2_train_loss": avg_l2_train_loss*alpha,
                        "train_accuracy": avg_train_accuracy})
         train_losses = []
         train_accuracies = []

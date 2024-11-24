@@ -24,7 +24,6 @@ dataset.shot = 1  # One shot for GPU
 dataset.seq_len = 8  # 8 Frames for comparison
 dataset.query_per_class = 1
 if deploy_server:
-    dataset.query_per_class = 4
     dataset.path = "/home/sberti_datasets/SSv2/images_in_class_folders"
 else:
     dataset.n_eval_steps=3

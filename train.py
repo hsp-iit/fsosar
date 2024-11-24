@@ -118,8 +118,8 @@ for elem in dataloader:
     global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
     global_query_labels = torch.tensor([unique_classes.index(x) for x in real_target_labels]).cuda()
     # Make support label one hot to apply them correctly
-    support_global_labels = torch.nn.functional.one_hot(global_support_labels, len(unique_classes))
-    l2_loss_support = torch.nn.functional.cross_entropy(support_global_scores, support_global_labels)
+    l2_loss_support = torch.nn.functional.cross_entropy(support_global_scores.reshape(-1, len(unique_classes)),
+                                                        global_support_labels.repeat(dataset.way))
     l2_loss_query = torch.nn.functional.cross_entropy(query_global_scores, global_query_labels)
     l2_loss = l2_loss_support + l2_loss_query
 

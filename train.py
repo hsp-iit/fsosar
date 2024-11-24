@@ -96,6 +96,17 @@ for elem in dataloader:
     #             cv2.imshow("image", i.permute(1, 2, 0).numpy())
     #             cv2.waitKey(0)
     #         counter += 1
+    # Visualize queries
+    # target_set_flat_labels = [videodataset.class_folders[int(x.item())] for x in real_target_labels]
+    # target_set_flat = target_set.reshape(dataset.way, dataset.query_per_class, dataset.seq_len, 3, 224, 224)
+    # counter = 0
+    # for k in target_set_flat:
+    #     print(target_set_flat_labels[counter])
+    #     for n in k:
+    #         for i in n:
+    #             cv2.imshow("image", i.permute(1, 2, 0).numpy())
+    #             cv2.waitKey(0)
+    #     counter += 1
 
     # Forward passs
     logits, support_global_scores, query_global_scores = model(support_set, support_labels, target_set, target_labels, class_name_embeddings, batch_class_list, dataset)
@@ -105,7 +116,7 @@ for elem in dataloader:
 
     # Compute L2 loss
     unique_classes = videodataset.train_split.get_unique_classes()
-    global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list]).cuda()
+    global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
     global_query_labels = torch.tensor([unique_classes.index(x) for x in real_target_labels]).cuda()
     # Make support label one hot to apply them correctly
     support_global_labels = torch.nn.functional.one_hot(global_support_labels, len(unique_classes))

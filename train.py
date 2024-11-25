@@ -76,7 +76,7 @@ def main(rank, world_size):
     # Initialize wandb
     if log_wandb:
         wandb.init(project="fsosar")
-        wandb.watch(model)
+        wandb.watch(model, log="all")
 
     # Define optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -87,7 +87,9 @@ def main(rank, world_size):
         return correct / labels.size(0)
 
     # Loop variables
-    train_accuracies = []
+    fs_train_accuracies = []
+    global_query_train_accuracies = []
+    global_support_train_accuracies = []
     l1_train_losses = []
     l2_train_losses = []
 
@@ -147,21 +149,29 @@ def main(rank, world_size):
         optimizer.step()
     
         # Logging
-        train_accuracy = compute_accuracy(logits, target_labels.long().to(rank))
+        fs_train_accuracy = compute_accuracy(logits, target_labels.long().to(rank))
+        global_query_train_accuracy = compute_accuracy(query_global_scores, global_query_labels)
+        global_support_train_accuracy = compute_accuracy(support_global_scores.reshape(-1, n_train_classes), global_support_labels.repeat(dataset.way))
+        fs_train_accuracies.append(fs_train_accuracy)
+        global_query_train_accuracies.append(global_query_train_accuracy)
+        global_support_train_accuracies.append(global_support_train_accuracy)
         l1_train_losses.append(l1_loss.item())
         l2_train_losses.append(l2_loss.item())
-        train_accuracies.append(train_accuracy)
         if step % log_train_after_steps == 0 and step > 0:
             avg_l1_train_loss = sum(l1_train_losses) / len(l1_train_losses)
             avg_l2_train_loss = sum(l2_train_losses) / len(l2_train_losses)
-            avg_train_accuracy = sum(train_accuracies) / len(train_accuracies)
-            print(f"Avg L1 Train Loss: {avg_l1_train_loss}, Avg L2 Train Loss: {avg_l2_train_loss*alpha}, Avg Train Accuracy: {avg_train_accuracy}")
+            avg_fs_train_accuracy = sum(fs_train_accuracies) / len(fs_train_accuracies)
+            print(f"Avg L1 Train Loss: {avg_l1_train_loss}, Avg L2 Train Loss: {avg_l2_train_loss*alpha}, Avg FS Train Accuracy: {avg_fs_train_accuracy}, Avg Global Query Train Accuracy: {sum(global_query_train_accuracies) / len(global_query_train_accuracies)}, Avg Global Support Train Accuracy: {sum(global_support_train_accuracies) / len(global_support_train_accuracies)}")
             if log_wandb:
                 wandb.log({"l1_train_loss": avg_l1_train_loss,
                         "l2_train_loss": avg_l2_train_loss*alpha,
-                        "train_accuracy": avg_train_accuracy})
+                        "fs_train_accuracy": avg_fs_train_accuracy,
+                        "global_query_train_accuracy": sum(global_query_train_accuracies) / len(global_query_train_accuracies),
+                        "global_support_train_accuracy": sum(global_support_train_accuracies) / len(global_support_train_accuracies)})
             train_losses = []
-            train_accuracies = []
+            avg_fs_train_accuracy = []
+            global_query_train_accuracies = []
+            global_support_train_accuracies = []
 
         # Evaluation
         if step % eval_after_steps == 0 and step > 0:

@@ -9,8 +9,6 @@ class SAFSAR(nn.Module):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(processor_name)
         self.model = AutoModelForVideoClassification.from_pretrained(model_name, output_hidden_states=True)
-        self.model.cuda()
-        self.model.train()
 
         # Freeze patch_embeddings
         for param in self.model.videomae.embeddings.parameters():

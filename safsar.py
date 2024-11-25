@@ -15,9 +15,6 @@ class SAFSAR(nn.Module):
         # Freeze patch_embeddings
         for param in self.model.videomae.embeddings.parameters():
             param.requires_grad = False
-        # We do not freeze half of the layers, why whould we?
-        # for param in self.model.videomae.encoder.layer[:6].parameters():
-        #     param.requires_grad = False
 
         self.mm_fusion_module = self._build_transformer(hidden_size, num_layers_mm, num_heads, intermediate_size)
         self.task_specific_learning_module = self._build_transformer(hidden_size, num_layers_task, num_heads, intermediate_size)
@@ -32,25 +29,22 @@ class SAFSAR(nn.Module):
         return TransformerEncoder(encoder_layer, num_layers=num_layers)
 
     def forward(self, support_set, support_labels, target_set, target_labels, class_name_embeddings, batch_class_list, dataset):
-        # Reorder support set w.r.t. support labels
-        support_set = support_set.reshape(dataset.way*dataset.shot, dataset.seq_len, 3, 224, 224)
-        support_set = support_set[support_labels.argsort()]
-        support_labels = support_labels[support_labels.argsort()]
 
         # Generate support set prototypes
         support_set = support_set.reshape(dataset.way*dataset.shot*dataset.seq_len, 3, 224, 224)
         inputs = self.processor(torch.unbind(support_set), return_tensors="pt", do_rescale=False)
         inputs['pixel_values'] = inputs['pixel_values'].reshape(dataset.way*dataset.shot, dataset.seq_len, 3, 224, 224)
-        if dataset.seq_len == 8:
+        if dataset.seq_len == 8:  # If we have sequences of 8 elements, repeat interleave them
             inputs['pixel_values'] = inputs['pixel_values'].repeat_interleave(2, dim=1)
         inputs['pixel_values'] = inputs['pixel_values'].cuda()
         outputs = self.model(**inputs)
         video_embeddings = outputs.hidden_states[-1].mean(dim=1)
         video_embeddings = self.model.fc_norm(video_embeddings).reshape(dataset.way, dataset.shot, -1).mean(dim=1)
 
-        textual_embeddings = [class_name_embeddings[x] for x in batch_class_list.long()]
+        textual_embeddings = [class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
         raw_mm_embeddings = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(video_embeddings, textual_embeddings)]
 
+        # add batch dimension for transformer, remove it after, get only first element (agumented support)
         mm_embeddings = [self.mm_fusion_module(emb.unsqueeze(0)).squeeze(0)[0] for emb in raw_mm_embeddings]
         mm_embeddings = torch.stack(mm_embeddings)
 
@@ -65,7 +59,8 @@ class SAFSAR(nn.Module):
         query_embeddings = outputs.hidden_states[-1].mean(dim=1)
         query_embeddings = self.model.fc_norm(query_embeddings)
 
-        mm_embeddings = mm_embeddings.unsqueeze(0).repeat(5, 1, 1)
+        # Repeat embeddings for each query
+        mm_embeddings = mm_embeddings.unsqueeze(0).repeat(dataset.way*dataset.query_per_class, 1, 1)
         embeddings = torch.cat((query_embeddings.unsqueeze(1), mm_embeddings), dim=1)
         embeddings = self.task_specific_learning_module(embeddings)
         query_embeddings_aug, support_embeddings = embeddings.split([1, 5], dim=1)
@@ -75,18 +70,8 @@ class SAFSAR(nn.Module):
             for j in range(support_embeddings.size(1)):
                 similarity_matrix[i, j] = self.cosine_similarity(query_embeddings_aug[i], support_embeddings[i, j])
 
-        # TODO softmax might not be needed
-        # scores = self.softmax(similarity_matrix)
-        scores = similarity_matrix
-
-        # Compute L2 loss
+        # Compute global logits
         support_global_logits = self.global_classification_layer(support_embeddings)
         query_global_logits = self.global_classification_layer(query_embeddings)
 
-        # TODO softmax might not be needed
-        # support_global_scores = self.softmax(support_global_logits)
-        # query_global_scores = self.softmax(query_global_logits)
-        support_global_scores = support_global_logits
-        query_global_scores = query_global_logits
-
-        return scores, support_global_scores, query_global_scores
+        return similarity_matrix, support_global_logits, query_global_logits

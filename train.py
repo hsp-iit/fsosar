@@ -74,7 +74,7 @@ def main(rank, world_size):
     model.train()
 
     # Initialize wandb
-    if log_wandb:
+    if log_wandb and rank==0:
         wandb.init(project="fsosar")
         wandb.watch(model, log="all")
 
@@ -162,7 +162,7 @@ def main(rank, world_size):
             avg_l2_train_loss = sum(l2_train_losses) / len(l2_train_losses)
             avg_fs_train_accuracy = sum(fs_train_accuracies) / len(fs_train_accuracies)
             print(f"Avg L1 Train Loss: {avg_l1_train_loss}, Avg L2 Train Loss: {avg_l2_train_loss*alpha}, Avg FS Train Accuracy: {avg_fs_train_accuracy}, Avg Global Query Train Accuracy: {sum(global_query_train_accuracies) / len(global_query_train_accuracies)}, Avg Global Support Train Accuracy: {sum(global_support_train_accuracies) / len(global_support_train_accuracies)}")
-            if log_wandb:
+            if log_wandb and rank==0:
                 wandb.log({"l1_train_loss": avg_l1_train_loss,
                         "l2_train_loss": avg_l2_train_loss*alpha,
                         "fs_train_accuracy": avg_fs_train_accuracy,
@@ -175,6 +175,7 @@ def main(rank, world_size):
 
         # Evaluation
         if step % eval_after_steps == 0 and step > 0:
+            dist.barrier()
             train_progress_bar.close()
             model.eval()
             with torch.no_grad():
@@ -195,12 +196,13 @@ def main(rank, world_size):
                     test_accuracies.append(test_accuracy)
                     eval_progress_bar.update(1)
                 eval_progress_bar.close()
-                if log_wandb:
+                if log_wandb and rank==0:
                     wandb.log({"test_loss": sum(test_losses) / len(test_losses), "test_accuracy": sum(test_accuracies) / len(test_accuracies)})
                 print(f"Avg Test Loss: {sum(test_losses) / len(test_losses)}, Avg Test Accuracy: {sum(test_accuracies) / len(test_accuracies)}")
             model.train()
             dataloader.dataset.train = True
             train_progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
+            dist.barrier()
 
         train_progress_bar.update(1)
         step += 1

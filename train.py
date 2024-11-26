@@ -33,6 +33,7 @@ def main(rank, world_size):
     eval_after_steps = 30000 if deploy_server else 3
     step = 0
     log_wandb = deploy_server
+    use_l2_loss = False
 
     # Load data
     dataset = SSv2()
@@ -68,7 +69,8 @@ def main(rank, world_size):
     # Initialize model
     model = SAFSAR(processor_name="MCG-NJU/videomae-base-finetuned-kinetics",
                 model_name="MCG-NJU/videomae-base-finetuned-kinetics",
-                n_train_classes=n_train_classes)
+                n_train_classes=n_train_classes,
+                use_l2_loss=use_l2_loss)
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
     model.train()
@@ -134,18 +136,24 @@ def main(rank, world_size):
         l1_loss = torch.nn.functional.cross_entropy(logits, target_labels.long().to(rank))
 
         # Compute L2 loss
-        unique_classes = videodataset.train_split.get_unique_classes()
-        global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).to(rank)
-        global_query_labels = torch.tensor([unique_classes.index(x) for x in real_target_labels]).to(rank)
-        # Make support label one hot to apply them correctly
-        l2_loss_support = torch.nn.functional.cross_entropy(support_global_scores.reshape(-1, len(unique_classes)),
-                                                            global_support_labels.repeat(dataset.way))
-        l2_loss_query = torch.nn.functional.cross_entropy(query_global_scores, global_query_labels)
-        l2_loss = l2_loss_support + l2_loss_query
+        if use_l2_loss:
+            unique_classes = videodataset.train_split.get_unique_classes()
+            global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).to(rank)
+            global_query_labels = torch.tensor([unique_classes.index(x) for x in real_target_labels]).to(rank)
+            # Make support label one hot to apply them correctly
+            l2_loss_support = torch.nn.functional.cross_entropy(support_global_scores.reshape(-1, len(unique_classes)),
+                                                                global_support_labels.repeat(dataset.way))
+            l2_loss_query = torch.nn.functional.cross_entropy(query_global_scores, global_query_labels)
+            l2_loss = l2_loss_support + l2_loss_query
+        else:
+            l2_loss = torch.FloatTensor(0)
 
         # Optimization
         optimizer.zero_grad()
-        (l1_loss + alpha*l2_loss).backward()
+        if use_l2_loss:
+            (l1_loss + alpha*l2_loss).backward()
+        else:
+            l1_loss.backward()
         optimizer.step()
     
         # Logging
@@ -168,7 +176,6 @@ def main(rank, world_size):
                         "fs_train_accuracy": avg_fs_train_accuracy,
                         "global_query_train_accuracy": sum(global_query_train_accuracies) / len(global_query_train_accuracies),
                         "global_support_train_accuracy": sum(global_support_train_accuracies) / len(global_support_train_accuracies)})
-            train_losses = []
             avg_fs_train_accuracy = []
             global_query_train_accuracies = []
             global_support_train_accuracies = []

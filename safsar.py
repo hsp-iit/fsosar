@@ -5,7 +5,7 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class SAFSAR(nn.Module):
     def __init__(self, processor_name, model_name, hidden_size=768, num_layers_mm=2, num_heads=8, 
-                 intermediate_size=3072, num_layers_task=1, n_train_classes=1):
+                 intermediate_size=3072, num_layers_task=1, n_train_classes=1, use_l2_loss=False):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(processor_name)
         self.model = AutoModelForVideoClassification.from_pretrained(model_name, output_hidden_states=True)
@@ -20,7 +20,9 @@ class SAFSAR(nn.Module):
         self.cosine_similarity = nn.CosineSimilarity(dim=-1)
         self.softmax = nn.Softmax(dim=-1)
 
-        self.global_classification_layer = nn.Linear(hidden_size, n_train_classes)
+        if use_l2_loss:
+            self.global_classification_layer = nn.Linear(hidden_size, n_train_classes)
+        self.use_l2_loss = use_l2_loss
 
     def _build_transformer(self, hidden_size, num_layers, num_heads, intermediate_size):
         encoder_layer = TransformerEncoderLayer(d_model=hidden_size, nhead=num_heads, dim_feedforward=intermediate_size)
@@ -63,13 +65,22 @@ class SAFSAR(nn.Module):
         embeddings = self.task_specific_learning_module(embeddings)
         query_embeddings_aug, support_embeddings = embeddings.split([1, 5], dim=1)
 
-        similarity_matrix = torch.zeros(query_embeddings_aug.size(0), support_embeddings.size(1)).cuda()
-        for i in range(query_embeddings_aug.size(0)):
-            for j in range(support_embeddings.size(1)):
-                similarity_matrix[i, j] = self.cosine_similarity(query_embeddings_aug[i], support_embeddings[i, j])
+        # similarity_matrix = torch.zeros(query_embeddings_aug.size(0), support_embeddings.size(1)).cuda()
+        # for i in range(query_embeddings_aug.size(0)):
+        #     for j in range(support_embeddings.size(1)):
+        #         similarity_matrix[i, j] = self.cosine_similarity(query_embeddings_aug[i], support_embeddings[i, j])
+
+        similarity_matrix = self.cosine_similarity(
+            query_embeddings_aug.expand(-1, support_embeddings.size(1), -1),
+            support_embeddings
+        )
 
         # Compute global logits
-        support_global_logits = self.global_classification_layer(support_embeddings)
-        query_global_logits = self.global_classification_layer(query_embeddings)
+        if self.use_l2_loss:
+            support_global_logits = self.global_classification_layer(support_embeddings)
+            query_global_logits = self.global_classification_layer(query_embeddings)
+        else:
+            support_global_logits = None
+            query_global_logits = None
 
         return similarity_matrix, support_global_logits, query_global_logits

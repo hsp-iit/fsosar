@@ -210,8 +210,9 @@ def main(rank, world_size):
                 dataloader.dataset.train = False
                 test_accuracies = []
                 test_losses = []
-                eval_progress_bar = tqdm(total=len(dataset.n_eval_steps), desc="Evaluation Progress")
-                for elem in range(dataset.n_eval_steps):
+                eval_progress_bar = tqdm(total=dataset.n_eval_steps, desc="Evaluation Progress")
+                test_counter = 0
+                for elem in dataloader:
                     test_support_set = elem["support_set"].squeeze(0)
                     test_target_set = elem["target_set"].squeeze(0)
                     test_target_labels = elem["target_labels"].squeeze(0).long()
@@ -226,13 +227,15 @@ def main(rank, world_size):
                     test_losses.append(test_loss.item())
                     test_accuracies.append(test_accuracy)
                     eval_progress_bar.update(1)
+                    if test_counter == dataset.n_eval_steps:
+                        break
+                    test_counter += 1
                 eval_progress_bar.close()
                 if log_wandb and rank==0:
                     wandb.log({"test_loss": sum(test_losses) / len(test_losses), "test_accuracy": sum(test_accuracies) / len(test_accuracies)})
-                avg_test_accuracy = sum(test_accuracies) / len(test_accuracies)
-                print(f"Avg Test Loss: {sum(test_losses) / len(test_losses)}, Avg Test Accuracy: {avg_test_accuracy}")
-                # Save the model with test accuracy as the name
-                if rank == 0:
+                    avg_test_accuracy = sum(test_accuracies) / len(test_accuracies)
+                    print(f"Avg Test Loss: {sum(test_losses) / len(test_losses)}, Avg Test Accuracy: {avg_test_accuracy}")
+                    # Save the model with test accuracy as the name
                     model_path = os.path.join(checkpoint_dir, f"model_{avg_test_accuracy:.4f}.pt")
                     torch.save(model.state_dict(), model_path)
             model.train()

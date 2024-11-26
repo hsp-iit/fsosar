@@ -30,6 +30,10 @@ class SAFSAR(nn.Module):
 
     def forward(self, support_set, support_labels, target_set, target_labels, class_name_embeddings, batch_class_list, dataset):
 
+        # # TODO REMOVE DEBUG
+        # support_set = support_set.reshape(dataset.way, dataset.shot, dataset.seq_len, 3, 224, 224)
+        # support_set = support_set[support_labels.argsort()]
+
         # Generate support set prototypes
         support_set = support_set.reshape(dataset.way*dataset.shot*dataset.seq_len, 3, 224, 224)
         inputs = self.processor(torch.unbind(support_set), return_tensors="pt", do_rescale=False)

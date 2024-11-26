@@ -27,13 +27,13 @@ def main(rank, world_size):
     # Define training parameters depenging of the server
     deploy_server = "iit.local" in os.getcwd()
 
-    lr = 1e-5
-    alpha = 0.3
+    lr = 4e-5
+    alpha = 0.1
     log_train_after_steps = 10 if deploy_server else 3
     eval_after_steps = 30000 if deploy_server else 3
     step = 0
     log_wandb = deploy_server
-    use_l2_loss = False
+    use_l2_loss = True
 
     # Load data
     dataset = SSv2()
@@ -133,7 +133,10 @@ def main(rank, world_size):
         logits, support_global_scores, query_global_scores = model(support_set, support_labels, target_set, target_labels, class_name_embeddings, batch_class_list, dataset)
         
         # Compute L1 loss
-        l1_loss = torch.nn.functional.cross_entropy(logits, target_labels.long().to(rank))
+        # NO TARGET LABELS!
+        # ordering doesn't matter, we need to check where target labels is equal to support labels
+        true_target_labels = torch.argsort(support_labels)[target_labels].to(rank)
+        l1_loss = torch.nn.functional.cross_entropy(logits, true_target_labels)
 
         # Compute L2 loss
         if use_l2_loss:
@@ -146,7 +149,7 @@ def main(rank, world_size):
             l2_loss_query = torch.nn.functional.cross_entropy(query_global_scores, global_query_labels)
             l2_loss = l2_loss_support + l2_loss_query
         else:
-            l2_loss = torch.FloatTensor(0)
+            l2_loss = torch.FloatTensor([0])
 
         # Optimization
         optimizer.zero_grad()
@@ -157,10 +160,14 @@ def main(rank, world_size):
         optimizer.step()
     
         # Logging
-        fs_train_accuracy = compute_accuracy(logits, target_labels.long().to(rank))
-        global_query_train_accuracy = compute_accuracy(query_global_scores, global_query_labels)
-        global_support_train_accuracy = compute_accuracy(support_global_scores.reshape(-1, n_train_classes), global_support_labels.repeat(dataset.way))
+        fs_train_accuracy = compute_accuracy(logits, true_target_labels.long().to(rank))
         fs_train_accuracies.append(fs_train_accuracy)
+        if use_l2_loss:
+            global_query_train_accuracy = compute_accuracy(query_global_scores, global_query_labels)
+            global_support_train_accuracy = compute_accuracy(support_global_scores.reshape(-1, n_train_classes), global_support_labels.repeat(dataset.way))
+        else:
+            global_query_train_accuracy = 0
+            global_support_train_accuracy = 0
         global_query_train_accuracies.append(global_query_train_accuracy)
         global_support_train_accuracies.append(global_support_train_accuracy)
         l1_train_losses.append(l1_loss.item())
@@ -197,8 +204,11 @@ def main(rank, world_size):
                     test_support_labels = elem['support_labels'].long().squeeze(0)
                     test_batch_class_list = elem['batch_class_list'].squeeze(0)
                     test_logits, _, _ = model(test_support_set, test_support_labels, test_target_set, test_target_labels, class_name_embeddings, test_batch_class_list, dataset)
-                    test_loss = torch.nn.functional.cross_entropy(test_logits, test_target_labels.long().to(rank))
-                    test_accuracy = compute_accuracy(test_logits, test_target_labels.long().to(rank))
+
+                    true_target_labels = torch.argsort(test_support_labels)[test_target_labels].to(rank)
+
+                    test_loss = torch.nn.functional.cross_entropy(test_logits, true_target_labels.long().to(rank))
+                    test_accuracy = compute_accuracy(test_logits, true_target_labels.long().to(rank))
                     test_losses.append(test_loss.item())
                     test_accuracies.append(test_accuracy)
                     eval_progress_bar.update(1)

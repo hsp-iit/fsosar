@@ -1,0 +1,13 @@
+{
+    "lr": 4e-5,
+    "alpha": 0.1,
+    "log_train_after_steps": 3,
+    "eval_after_steps": 3,
+    "log_wandb": false,
+    "use_l2_loss": true,
+    "shot": 1,
+    "seq_len": 8,
+    "query_per_class": 1,
+    "path": "/home/iit.local/sberti/datasets/SSv2",
+    "n_eval_steps": 3
+}

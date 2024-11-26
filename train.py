@@ -10,7 +10,10 @@ import os
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
-
+# Add import for saving the model
+import os
+from datetime import datetime
+import json
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -21,29 +24,40 @@ def setup(rank, world_size):
 def cleanup():
     dist.destroy_process_group()
 
+def load_config():
+    deploy_server = "iit.local" in os.getcwd()
+    config_path = "config/sofsar/server_config.json" if deploy_server else "config/sofsar/local_config.json"
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    return config
+
 def main(rank, world_size):
     setup(rank, world_size)
 
-    # Define training parameters depenging of the server
-    deploy_server = "iit.local" in os.getcwd()
+    # Load configuration
+    config = load_config()
 
-    lr = 4e-5
-    alpha = 0.1
-    log_train_after_steps = 10 if deploy_server else 3
-    eval_after_steps = 30000 if deploy_server else 3
-    step = 0
-    log_wandb = deploy_server
-    use_l2_loss = True
+    # Create directory for saving checkpoints
+    if rank == 0:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        checkpoint_dir = os.path.join("logs", timestamp)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+    # Define training parameters
+    lr = config["lr"]
+    alpha = config["alpha"]
+    log_train_after_steps = config["log_train_after_steps"]
+    eval_after_steps = config["eval_after_steps"]
+    log_wandb = config["log_wandb"]
+    use_l2_loss = config["use_l2_loss"]
 
     # Load data
     dataset = SSv2()
-    dataset.shot = 1  # One shot for GPU
-    dataset.seq_len = 8  # 8 Frames for comparison
-    dataset.query_per_class = 1
-    if deploy_server:
-        dataset.path = "/home/sberti_datasets/SSv2/images_in_class_folders"
-    else:
-        dataset.n_eval_steps=3
+    dataset.shot = config["shot"]
+    dataset.seq_len = config["seq_len"]
+    dataset.query_per_class = config["query_per_class"]
+    dataset.path = config["path"]
+    dataset.n_eval_steps = config["n_eval_steps"]
     videodataset = VideoDataset(dataset)
     # Use DistributedSampler for the dataset
     train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
@@ -96,7 +110,7 @@ def main(rank, world_size):
     l2_train_losses = []
 
     train_progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
-
+    step = 0
     for elem in dataloader:
         # Data preparation
         support_set = elem["support_set"].squeeze(0)
@@ -215,7 +229,12 @@ def main(rank, world_size):
                 eval_progress_bar.close()
                 if log_wandb and rank==0:
                     wandb.log({"test_loss": sum(test_losses) / len(test_losses), "test_accuracy": sum(test_accuracies) / len(test_accuracies)})
-                print(f"Avg Test Loss: {sum(test_losses) / len(test_losses)}, Avg Test Accuracy: {sum(test_accuracies) / len(test_accuracies)}")
+                avg_test_accuracy = sum(test_accuracies) / len(test_accuracies)
+                print(f"Avg Test Loss: {sum(test_losses) / len(test_losses)}, Avg Test Accuracy: {avg_test_accuracy}")
+                # Save the model with test accuracy as the name
+                if rank == 0:
+                    model_path = os.path.join(checkpoint_dir, f"model_{avg_test_accuracy:.4f}.pt")
+                    torch.save(model.state_dict(), model_path)
             model.train()
             dataloader.dataset.train = True
             train_progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")

@@ -2,7 +2,7 @@
     "lr": 4e-5,
     "alpha": 0.1,
     "log_train_after_steps": 10,
-    "eval_after_steps": 30000,
+    "eval_after_steps": 1000,
     "log_wandb": true,
     "use_l2_loss": true,
     "shot": 1,

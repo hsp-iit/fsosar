@@ -91,7 +91,7 @@ def main(rank, world_size):
 
     # Initialize wandb
     if log_wandb and rank==0:
-        wandb.init(project="fsosar", log=config_path)
+        wandb.init(project="fsosar", config=config)
         wandb.watch(model, log="all")
 
     # Define optimizer
@@ -210,7 +210,7 @@ def main(rank, world_size):
                 dataloader.dataset.train = False
                 test_accuracies = []
                 test_losses = []
-                eval_progress_bar = tqdm(total=len(dataloader), desc="Evaluation Progress")
+                eval_progress_bar = tqdm(total=len(dataset.n_eval_steps), desc="Evaluation Progress")
                 for elem in range(dataset.n_eval_steps):
                     test_support_set = elem["support_set"].squeeze(0)
                     test_target_set = elem["target_set"].squeeze(0)

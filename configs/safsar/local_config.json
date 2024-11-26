@@ -8,6 +8,6 @@
     "shot": 1,
     "seq_len": 8,
     "query_per_class": 1,
-    "path": "/home/iit.local/sberti/datasets/SSv2",
+    "path": "/home/steb6/datasets/SSv2/images",
     "n_eval_steps": 3
 }

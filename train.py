@@ -26,7 +26,7 @@ def cleanup():
 
 def load_config():
     deploy_server = "iit.local" in os.getcwd()
-    config_path = "config/sofsar/server_config.json" if deploy_server else "config/sofsar/local_config.json"
+    config_path = "configs/safsar/server_config.json" if deploy_server else "configs/safsar/local_config.json"
     with open(config_path, 'r') as f:
         config = json.load(f)
     return config
@@ -91,7 +91,7 @@ def main(rank, world_size):
 
     # Initialize wandb
     if log_wandb and rank==0:
-        wandb.init(project="fsosar")
+        wandb.init(project="fsosar", log=config_path)
         wandb.watch(model, log="all")
 
     # Define optimizer
@@ -211,12 +211,12 @@ def main(rank, world_size):
                 test_accuracies = []
                 test_losses = []
                 eval_progress_bar = tqdm(total=len(dataloader), desc="Evaluation Progress")
-                for elem in dataloader:
+                for elem in range(dataset.n_eval_steps):
                     test_support_set = elem["support_set"].squeeze(0)
                     test_target_set = elem["target_set"].squeeze(0)
-                    test_target_labels = elem["target_labels"].squeeze(0)
-                    test_support_labels = elem['support_labels'].long().squeeze(0)
-                    test_batch_class_list = elem['batch_class_list'].squeeze(0)
+                    test_target_labels = elem["target_labels"].squeeze(0).long()
+                    test_support_labels = elem['support_labels'].long().squeeze(0).long()
+                    test_batch_class_list = elem['batch_class_list'].squeeze(0).long()
                     test_logits, _, _ = model(test_support_set, test_support_labels, test_target_set, test_target_labels, class_name_embeddings, test_batch_class_list, dataset)
 
                     true_target_labels = torch.argsort(test_support_labels)[test_target_labels].to(rank)

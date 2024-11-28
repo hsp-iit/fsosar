@@ -10,6 +10,7 @@ import os
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
+from transformers import AutoImageProcessor
 # Add import for saving the model
 import os
 from datetime import datetime
@@ -59,6 +60,10 @@ def main(rank, world_size):
     dataset.path = config["path"]
     dataset.n_eval_steps = config["n_eval_steps"]
     videodataset = VideoDataset(dataset)
+    # Change preprocessing to custom one
+    videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
+    videodataset.transform["train"] = lambda x: [x for x in videodataset.processor(x)["pixel_values"][0]]
+    videodataset.transform["test"] = lambda x: [x for x in videodataset.processor(x)["pixel_values"][0]]
     # Use DistributedSampler for the dataset
     train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
     dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler)
@@ -120,26 +125,26 @@ def main(rank, world_size):
         batch_class_list = elem['batch_class_list'].squeeze(0).long()
         real_target_labels = elem["real_target_labels"].squeeze(0).long()
 
-        # Visualize support NOTE for debug use
+        # # Visualize support NOTE for debug use
         # support_set_flat_labels = [videodataset.class_folders[int(x.item())] for x in batch_class_list[support_labels]]
-        # support_set_flat = support_set.reshape(dataset.way, dataset.shot, dataset.seq_len, 3, 224, 224)
+        # support_set_flat = support_set.reshape(dataset.way, dataset.shot, dataset.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
         # counter = 0
         # for k in support_set_flat:
         #     for n in k:
         #         print(support_set_flat_labels[counter])
         #         for i in n:
-        #             cv2.imshow("image", i.permute(1, 2, 0).numpy())
+        #             cv2.imshow("image", i.numpy())
         #             cv2.waitKey(0)
         #         counter += 1
-        # Visualize queries
+        # # Visualize queries
         # target_set_flat_labels = [videodataset.class_folders[int(x.item())] for x in real_target_labels]
-        # target_set_flat = target_set.reshape(dataset.way, dataset.query_per_class, dataset.seq_len, 3, 224, 224)
+        # target_set_flat = target_set.reshape(dataset.way, dataset.query_per_class, dataset.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
         # counter = 0
         # for k in target_set_flat:
         #     print(target_set_flat_labels[counter])
         #     for n in k:
         #         for i in n:
-        #             cv2.imshow("image", i.permute(1, 2, 0).numpy())
+        #             cv2.imshow("image", i.numpy())
         #             cv2.waitKey(0)
         #     counter += 1
 

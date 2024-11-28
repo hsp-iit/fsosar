@@ -30,34 +30,26 @@ class SAFSAR(nn.Module):
 
     def forward(self, support_set, support_labels, target_set, target_labels, class_name_embeddings, batch_class_list, dataset):
 
-        # # TODO REMOVE DEBUG
-        # support_set = support_set.reshape(dataset.way, dataset.shot, dataset.seq_len, 3, 224, 224)
-        # support_set = support_set[support_labels.argsort()]
-
         # Generate support set prototypes
-        support_set = support_set.reshape(dataset.way*dataset.shot*dataset.seq_len, 3, 224, 224)
-        inputs = self.processor(torch.unbind(support_set), return_tensors="pt", do_rescale=False)
-        inputs['pixel_values'] = inputs['pixel_values'].reshape(dataset.way*dataset.shot, dataset.seq_len, 3, 224, 224)
-        if dataset.seq_len == 8:  # If we have sequences of 8 elements, repeat interleave them
-            inputs['pixel_values'] = inputs['pixel_values'].repeat_interleave(2, dim=1)
-        inputs['pixel_values'] = inputs['pixel_values'].cuda()
+        support_set = support_set.reshape(dataset.way*dataset.shot, dataset.seq_len, 224, 3, 224)
+        support_set = support_set.permute(0, 1, 3, 4, 2)
+        if dataset.seq_len == 8:
+            inputs = {"pixel_values": support_set.repeat_interleave(2, dim=1).cuda()}
         outputs = self.model(**inputs)
         video_embeddings = outputs.hidden_states[-1].mean(dim=1)
         video_embeddings = self.model.fc_norm(video_embeddings).reshape(dataset.way, dataset.shot, -1).mean(dim=1)
-
+        # add textual features
         textual_embeddings = [class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
         raw_mm_embeddings = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(video_embeddings, textual_embeddings)]
-
         # add batch dimension for transformer, remove it after, get only first element (agumented support)
         mm_embeddings = [self.mm_fusion_module(emb.unsqueeze(0)).squeeze(0)[0] for emb in raw_mm_embeddings]
         mm_embeddings = torch.stack(mm_embeddings)
 
         # Generate query prototypes
-        target_set = target_set.reshape(dataset.query_per_class*dataset.way*dataset.seq_len, 3, 224, 224)
-        inputs = self.processor(torch.unbind(target_set), return_tensors="pt", do_rescale=False)
-        inputs['pixel_values'] = inputs['pixel_values'].reshape(dataset.way*dataset.query_per_class, dataset.seq_len, 3, 224, 224)
+        target_set = target_set.reshape(dataset.query_per_class*dataset.way, dataset.seq_len, 224, 3, 224)
+        target_set = target_set.permute(0, 1, 3, 4, 2)
         if dataset.seq_len == 8:
-            inputs['pixel_values'] = inputs['pixel_values'].repeat_interleave(2, dim=1)
+            inputs = {"pixel_values": target_set.repeat_interleave(2, dim=1).cuda()}
         inputs['pixel_values'] = inputs['pixel_values'].cuda()
         outputs = self.model(**inputs)
         query_embeddings = outputs.hidden_states[-1].mean(dim=1)
@@ -68,11 +60,6 @@ class SAFSAR(nn.Module):
         embeddings = torch.cat((query_embeddings.unsqueeze(1), mm_embeddings), dim=1)
         embeddings = self.task_specific_learning_module(embeddings)
         query_embeddings_aug, support_embeddings = embeddings.split([1, 5], dim=1)
-
-        # similarity_matrix = torch.zeros(query_embeddings_aug.size(0), support_embeddings.size(1)).cuda()
-        # for i in range(query_embeddings_aug.size(0)):
-        #     for j in range(support_embeddings.size(1)):
-        #         similarity_matrix[i, j] = self.cosine_similarity(query_embeddings_aug[i], support_embeddings[i, j])
 
         similarity_matrix = self.cosine_similarity(
             query_embeddings_aug.expand(-1, support_embeddings.size(1), -1),

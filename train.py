@@ -165,8 +165,7 @@ def main(rank, world_size):
             global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).to(rank)
             global_query_labels = torch.tensor([unique_classes.index(x) for x in real_target_labels]).to(rank)
             # Make support label one hot to apply them correctly
-            l2_loss_support = torch.nn.functional.cross_entropy(support_global_scores.reshape(-1, len(unique_classes)),
-                                                                global_support_labels.repeat(dataset.way))
+            l2_loss_support = torch.nn.functional.cross_entropy(support_global_scores, global_support_labels)
             l2_loss_query = torch.nn.functional.cross_entropy(query_global_scores, global_query_labels)
             l2_loss = l2_loss_support + l2_loss_query
         else:
@@ -185,7 +184,7 @@ def main(rank, world_size):
         fs_train_accuracies.append(fs_train_accuracy)
         if use_l2_loss:
             global_query_train_accuracy = compute_accuracy(query_global_scores, global_query_labels)
-            global_support_train_accuracy = compute_accuracy(support_global_scores.reshape(-1, n_train_classes), global_support_labels.repeat(dataset.way))
+            global_support_train_accuracy = compute_accuracy(support_global_scores, global_support_labels)
         else:
             global_query_train_accuracy = 0
             global_support_train_accuracy = 0

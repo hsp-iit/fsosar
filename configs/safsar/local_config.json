@@ -9,5 +9,6 @@
     "seq_len": 8,
     "query_per_class": 1,
     "path": "/home/steb6/datasets/SSv2/images",
-    "n_eval_steps": 3
+    "n_eval_steps": 3,
+    "use_textual_embedding": true
 }

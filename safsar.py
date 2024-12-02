@@ -38,16 +38,16 @@ class SAFSAR(nn.Module):
         if dataset.seq_len == 8:
             inputs = {"pixel_values": support_set.repeat_interleave(2, dim=1).cuda()}
         outputs = self.model(**inputs)
-        video_embeddings = outputs.hidden_states[-1].mean(dim=1)
-        video_embeddings = self.model.fc_norm(video_embeddings).reshape(dataset.way, dataset.shot, -1).mean(dim=1)
+        support_features = outputs.hidden_states[-1].mean(dim=1)
+        support_features = self.model.fc_norm(support_features).reshape(dataset.way, dataset.shot, -1).mean(dim=1)
         # add textual features
         if self.use_textual_embedding:
             textual_embeddings = [class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
-            raw_mm_embeddings = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(video_embeddings, textual_embeddings)]
-            mm_embeddings = [self.mm_fusion_module(emb)[0] for emb in raw_mm_embeddings]
-            mm_embeddings = torch.stack(mm_embeddings)
+            raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_features, textual_embeddings)]
+            support_mm_features = [self.mm_fusion_module(emb)[0] for emb in raw_support_mm_features]
+            support_mm_features = torch.stack(support_mm_features)
         else:
-            mm_embeddings = video_embeddings
+            support_mm_features = support_features
 
         # Generate query prototypes
         target_set = target_set.reshape(dataset.query_per_class*dataset.way, dataset.seq_len, 224, 3, 224)
@@ -56,24 +56,24 @@ class SAFSAR(nn.Module):
             inputs = {"pixel_values": target_set.repeat_interleave(2, dim=1).cuda()}
         inputs['pixel_values'] = inputs['pixel_values'].cuda()
         outputs = self.model(**inputs)
-        query_embeddings = outputs.hidden_states[-1].mean(dim=1)
-        query_embeddings = self.model.fc_norm(query_embeddings)
+        query_features = outputs.hidden_states[-1].mean(dim=1)
+        query_features = self.model.fc_norm(query_features)
 
         # Repeat embeddings for each query
-        mm_embeddings = mm_embeddings.unsqueeze(0).repeat(dataset.way*dataset.query_per_class, 1, 1)
-        embeddings = torch.cat((query_embeddings.unsqueeze(1), mm_embeddings), dim=1)
-        embeddings = self.task_specific_learning_module(embeddings)
-        query_embeddings_aug, support_embeddings = embeddings.split([1, 5], dim=1)
+        support_mm_features = support_mm_features.unsqueeze(0).repeat(dataset.way*dataset.query_per_class, 1, 1)
+        combined_features = torch.cat((query_features.unsqueeze(1), support_mm_features), dim=1)
+        combined_features = self.task_specific_learning_module(combined_features)
+        query_features_aug, support_mm_features_aug = combined_features.split([1, dataset.way], dim=1)
 
         similarity_matrix = self.cosine_similarity(
-            query_embeddings_aug.expand(-1, support_embeddings.size(1), -1),
-            support_embeddings
+            query_features_aug.expand(-1, support_mm_features_aug.size(1), -1),
+            support_mm_features_aug
         )
 
         # Compute global logits
         if self.use_l2_loss:
-            support_global_logits = self.global_classification_layer(support_embeddings)
-            query_global_logits = self.global_classification_layer(query_embeddings)
+            support_global_logits = self.global_classification_layer(support_features)
+            query_global_logits = self.global_classification_layer(query_features)
         else:
             support_global_logits = None
             query_global_logits = None

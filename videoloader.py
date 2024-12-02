@@ -9,6 +9,7 @@ import zipfile
 import io
 from videotransforms.video_transforms import Compose, Resize, RandomCrop, RandomRotation, ColorJitter, RandomHorizontalFlip, CenterCrop, TenCrop
 import pickle
+from transformers import AutoImageProcessor
 
 
 """Contains video frame paths and ground truth labels for a single split (e.g. train videos). """
@@ -75,6 +76,14 @@ class VideoDataset(torch.utils.data.Dataset):
         self.setup_transforms()
         self._select_fold()
         self.read_dir()
+
+        # Change transform to custom ones
+        self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
+        self.transform["train"] = self.custom_transform
+        self.transform["test"] = self.custom_transform
+
+    def custom_transform(self, x):
+        return [x for x in self.processor(x)["pixel_values"][0]]
 
     """Setup crop sizes/flips for augmentation during training and centre crop for testing"""
     def setup_transforms(self):

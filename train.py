@@ -62,12 +62,12 @@ def main(rank, world_size):
     dataset.n_eval_steps = config["n_eval_steps"]
     videodataset = VideoDataset(dataset)
     # Change preprocessing to custom one
-    videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
-    videodataset.transform["train"] = lambda x: [x for x in videodataset.processor(x)["pixel_values"][0]]
-    videodataset.transform["test"] = lambda x: [x for x in videodataset.processor(x)["pixel_values"][0]]
+    # videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
+    # videodataset.transform["train"] = lambda x: custom_transform(x, videodataset.processor)
+    # videodataset.transform["test"] = lambda x: custom_transform(x, videodataset.processor)
     # Use DistributedSampler for the dataset
     train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
-    dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler)
+    dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=4)
 
     # Get features of class names with BERT
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')

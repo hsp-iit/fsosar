@@ -15,7 +15,7 @@ class SAFSAR(nn.Module):
             param.requires_grad = False
 
         self.mm_fusion_module = self._build_transformer(hidden_size, num_layers_mm, num_heads, intermediate_size)
-        self.task_specific_learning_module = self._build_transformer(hidden_size, num_layers_task, num_heads, intermediate_size)
+        self.task_specific_learning_module = self._build_transformer(hidden_size, num_layers_task, num_heads, intermediate_size, batch_first=True)
 
         self.cosine_similarity = nn.CosineSimilarity(dim=-1)
         self.softmax = nn.Softmax(dim=-1)
@@ -42,7 +42,7 @@ class SAFSAR(nn.Module):
         textual_embeddings = [class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
         raw_mm_embeddings = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(video_embeddings, textual_embeddings)]
         # add batch dimension for transformer, remove it after, get only first element (agumented support)
-        mm_embeddings = [self.mm_fusion_module(emb.unsqueeze(0)).squeeze(0)[0] for emb in raw_mm_embeddings]
+        mm_embeddings = [self.mm_fusion_module(emb)[0] for emb in raw_mm_embeddings]
         mm_embeddings = torch.stack(mm_embeddings)
 
         # Generate query prototypes

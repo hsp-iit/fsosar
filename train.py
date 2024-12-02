@@ -87,9 +87,9 @@ def main(rank, world_size):
 
     # Initialize model
     model = SAFSAR(processor_name="MCG-NJU/videomae-base-finetuned-kinetics",
-                model_name="MCG-NJU/videomae-base-finetuned-kinetics",
-                n_train_classes=n_train_classes,
-                use_l2_loss=use_l2_loss)
+                   model_name="MCG-NJU/videomae-base-finetuned-kinetics",
+                   n_train_classes=n_train_classes,
+                   use_l2_loss=use_l2_loss)
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
     model.train()

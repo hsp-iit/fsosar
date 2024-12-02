@@ -15,8 +15,8 @@ class SAFSAR(nn.Module):
         for param in self.model.videomae.embeddings.parameters():
             param.requires_grad = False
 
-        self.mm_fusion_module = self._build_transformer(hidden_size, num_layers_mm, num_heads, intermediate_size)
-        self.task_specific_learning_module = self._build_transformer(hidden_size, num_layers_task, num_heads, intermediate_size, batch_first=True)
+        self.mm_fusion_module = self._build_transformer(hidden_size, num_layers_mm, num_heads, intermediate_size)  # We do not use batch here
+        self.task_specific_learning_module = self._build_transformer(hidden_size, num_layers_task, num_heads, intermediate_size, batch_first=True)  # We pass batch as first dimension
 
         self.cosine_similarity = nn.CosineSimilarity(dim=-1)
         self.softmax = nn.Softmax(dim=-1)
@@ -26,8 +26,8 @@ class SAFSAR(nn.Module):
         self.use_l2_loss = use_l2_loss
         self.use_textual_embedding = use_textual_embedding
 
-    def _build_transformer(self, hidden_size, num_layers, num_heads, intermediate_size):
-        encoder_layer = TransformerEncoderLayer(d_model=hidden_size, nhead=num_heads, dim_feedforward=intermediate_size)
+    def _build_transformer(self, hidden_size, num_layers, num_heads, intermediate_size, batch_first=False):
+        encoder_layer = TransformerEncoderLayer(d_model=hidden_size, nhead=num_heads, dim_feedforward=intermediate_size, batch_first=batch_first)
         return TransformerEncoder(encoder_layer, num_layers=num_layers)
 
     def forward(self, support_set, support_labels, target_set, target_labels, class_name_embeddings, batch_class_list, dataset):

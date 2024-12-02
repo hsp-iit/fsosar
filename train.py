@@ -51,6 +51,7 @@ def main(rank, world_size):
     eval_after_steps = config["eval_after_steps"]
     log_wandb = config["log_wandb"]
     use_l2_loss = config["use_l2_loss"]
+    use_textual_embedding = config["use_textual_embedding"]
 
     # Load data
     dataset = SSv2()
@@ -89,7 +90,8 @@ def main(rank, world_size):
     model = SAFSAR(processor_name="MCG-NJU/videomae-base-finetuned-kinetics",
                    model_name="MCG-NJU/videomae-base-finetuned-kinetics",
                    n_train_classes=n_train_classes,
-                   use_l2_loss=use_l2_loss)
+                   use_l2_loss=use_l2_loss,
+                   use_textual_embedding=use_textual_embedding)
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
     model.train()

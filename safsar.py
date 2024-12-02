@@ -5,7 +5,8 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class SAFSAR(nn.Module):
     def __init__(self, processor_name, model_name, hidden_size=768, num_layers_mm=2, num_heads=8, 
-                 intermediate_size=3072, num_layers_task=1, n_train_classes=1, use_l2_loss=False):
+                 intermediate_size=3072, num_layers_task=1, n_train_classes=1, use_l2_loss=False,
+                 use_textual_embedding=True):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(processor_name)
         self.model = AutoModelForVideoClassification.from_pretrained(model_name, output_hidden_states=True)
@@ -23,6 +24,7 @@ class SAFSAR(nn.Module):
         if use_l2_loss:
             self.global_classification_layer = nn.Linear(hidden_size, n_train_classes)
         self.use_l2_loss = use_l2_loss
+        self.use_textual_embedding = use_textual_embedding
 
     def _build_transformer(self, hidden_size, num_layers, num_heads, intermediate_size):
         encoder_layer = TransformerEncoderLayer(d_model=hidden_size, nhead=num_heads, dim_feedforward=intermediate_size)
@@ -39,11 +41,13 @@ class SAFSAR(nn.Module):
         video_embeddings = outputs.hidden_states[-1].mean(dim=1)
         video_embeddings = self.model.fc_norm(video_embeddings).reshape(dataset.way, dataset.shot, -1).mean(dim=1)
         # add textual features
-        textual_embeddings = [class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
-        raw_mm_embeddings = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(video_embeddings, textual_embeddings)]
-        # add batch dimension for transformer, remove it after, get only first element (agumented support)
-        mm_embeddings = [self.mm_fusion_module(emb)[0] for emb in raw_mm_embeddings]
-        mm_embeddings = torch.stack(mm_embeddings)
+        if self.use_textual_embedding:
+            textual_embeddings = [class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
+            raw_mm_embeddings = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(video_embeddings, textual_embeddings)]
+            mm_embeddings = [self.mm_fusion_module(emb)[0] for emb in raw_mm_embeddings]
+            mm_embeddings = torch.stack(mm_embeddings)
+        else:
+            mm_embeddings = video_embeddings
 
         # Generate query prototypes
         target_set = target_set.reshape(dataset.query_per_class*dataset.way, dataset.seq_len, 224, 3, 224)

@@ -9,6 +9,8 @@
     "seq_len": 8,
     "query_per_class": 1,
     "path": "/home/sberti_datasets/SSv2/images_in_class_folders",
-    "n_eval_steps": 1000,
-    "use_textual_embedding": true
+    "n_eval_steps": 10000,
+    "use_textual_embedding": true,
+    "eval_only": true,
+    "checkpoint_path": "logs/20241202_140717/model_0.7125.pt"
 }

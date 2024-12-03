@@ -95,6 +95,8 @@ def main(rank, world_size):
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
     model.train()
+    if config["eval_only"]:
+        model.load_state_dict(torch.load(config["checkpoint_path"]))
 
     # Initialize wandb
     if log_wandb and rank==0:
@@ -208,7 +210,7 @@ def main(rank, world_size):
             global_support_train_accuracies = []
 
         # Evaluation
-        if step % eval_after_steps == 0 and step > 0:
+        if (step % eval_after_steps == 0 and step > 0) or config["eval_only"]:
             dist.barrier()
             train_progress_bar.close()
             model.eval()
@@ -248,6 +250,9 @@ def main(rank, world_size):
             dataloader.dataset.train = True
             train_progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
             dist.barrier()
+
+            if config["eval_only"]:
+                exit()
 
         train_progress_bar.update(1)
         step += 1

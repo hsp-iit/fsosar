@@ -357,7 +357,7 @@ class VideoDataset(torch.utils.data.Dataset):
         target_labels = torch.FloatTensor(target_labels)
         real_target_labels = torch.FloatTensor(real_target_labels)
         batch_classes = torch.FloatTensor(batch_classes) 
-        
+
         return {"support_set":support_set, "support_labels":support_labels, "target_set":target_set, "target_labels":target_labels, "real_target_labels":real_target_labels, "batch_class_list": batch_classes}
 
 

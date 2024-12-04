@@ -35,14 +35,18 @@ def main(rank, world_size):
     log_wandb = config["log_wandb"]
 
     # Data
-    videodataset = VideoDataset(DataArgs(config))
-    # Change preprocessing to custom one
-    # videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
-    # videodataset.transform["train"] = lambda x: custom_transform(x, videodataset.processor)
-    # videodataset.transform["test"] = lambda x: custom_transform(x, videodataset.processor)
-    # Use DistributedSampler for the dataset
-    train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
-    dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=4)
+    def setup_dataloader(train=True):
+        videodataset = VideoDataset(DataArgs(config))
+        videodataset.train = train
+        # Change preprocessing to custom one
+        # videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
+        # videodataset.transform["train"] = lambda x: custom_transform(x, videodataset.processor)
+        # videodataset.transform["test"] = lambda x: custom_transform(x, videodataset.processor)
+        # Use DistributedSampler for the dataset
+        train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
+        dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=4)
+        return iter(dataloader), videodataset
+    dataloader, videodataset = setup_dataloader()
     config["classes_names"] = videodataset.class_folders
     config["n_train_classes"] = len(set(videodataset.train_split.gt_a_list))
     config["train_unique_classes"] = videodataset.train_split.get_unique_classes()
@@ -72,7 +76,9 @@ def main(rank, world_size):
     step = 0
     training = True
 
-    for elem in dataloader:
+    while True:
+        elem = next(dataloader)
+
         # Data preparation
         support_set = elem["support_set"].squeeze(0)
         target_set = elem["target_set"].squeeze(0)
@@ -104,17 +110,19 @@ def main(rank, world_size):
         if step % log_train_after_steps == 0 and step > 0 and training:
             train_results = average_meter.average()
             if log_wandb and rank==0:
-                print(train_results)
+                # print(train_results)
                 wandb.log(train_results)
 
         # Enable evaluation
         if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
+            print("ENABLE EVALUATIION")
             dist.barrier()
             if rank == 0:
                 progress_bar.close()
                 progress_bar = tqdm(total=config["n_eval_steps"], desc="Evaluation Progress")
             model.eval()
-            dataloader.dataset.train = False
+            dataloader, dataset = setup_dataloader(train=False)
+            # dataset.train = False
             average_meter.average()
             average_meter = test_meter
             training = False
@@ -122,14 +130,16 @@ def main(rank, world_size):
             step = 0
         # Disable evaluation
         if not training and step == config["n_eval_steps"]:
+            print("DISABLE EVALUATION")
             dist.barrier()
             model.train()
-            dataloader.dataset.train = True
+            dataloader, dataset = setup_dataloader(train=True)
+            # dataset.train = True
             test_results = average_meter.average()
             if rank == 0:
                 progress_bar.close()
                 progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
-                print(test_results)
+                # print(test_results)
                 wandb.log(test_results)
                 # Save the model with test accuracy as the name
                 acc_vip = test_results["test/fs_acc"]

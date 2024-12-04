@@ -1,0 +1,19 @@
+
+{
+    "processor_name": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "model_name": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "hidden_size": 768,
+    "num_layers_mm": 2,
+    "num_heads": 8,
+    "intermediate_size": 3072,
+    "num_layers_task": 1,
+    "use_l2_loss": true,
+    "use_textual_embedding": true,
+    "alpha": 0.1,
+    "lr": 4e-5,
+    "log_train_after_steps": 10,
+    "eval_after_steps": 1000,
+    "log_wandb": true,
+    "eval_only": false,
+    "n_eval_steps": 1000
+}

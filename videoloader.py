@@ -54,9 +54,11 @@ class Split():
 """Dataset for few-shot videos, which returns few-shot tasks. """
 class VideoDataset(torch.utils.data.Dataset):
     def __init__(self, args):
-        self.args = args
         self.get_item_counter = 0
-
+        self.debug_loader = args.debug_loader
+        self.split = args.split
+        self.query_per_class = args.query_per_class
+        self.query_per_class_test = args.query_per_class_test
         self.data_dir = args.path
         self.seq_len = args.seq_len
         self.train = True
@@ -67,7 +69,6 @@ class VideoDataset(torch.utils.data.Dataset):
 
         self.way=args.way
         self.shot=args.shot
-        self.query_per_class=args.query_per_class
         self.n_eval_steps=args.n_eval_steps
 
         self.train_split = Split()
@@ -77,7 +78,7 @@ class VideoDataset(torch.utils.data.Dataset):
         self._select_fold()
         self.read_dir()
 
-        # Change transform to custom ones
+        # Change transform to custom ones  TODO FIX FOR STRM
         self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
         self.transform["train"] = self.custom_transform
         self.transform["test"] = self.custom_transform
@@ -173,7 +174,7 @@ class VideoDataset(torch.utils.data.Dataset):
             for class_folder in tqdm.tqdm(class_folders):
                 video_folders = os.listdir(os.path.join(self.data_dir, class_folder))
                 video_folders.sort()
-                if self.args.debug_loader:
+                if self.debug_loader:
                     video_folders = video_folders[0:1]
                 for video_folder in video_folders:
                     c = self.get_train_or_test_db(video_folder)
@@ -220,7 +221,7 @@ class VideoDataset(torch.utils.data.Dataset):
     def _select_fold(self):
         lists = {}
         for name in ["train", "test"]:
-            fname = "{}list{:02d}.txt".format(name, self.args.split)
+            fname = "{}list{:02d}.txt".format(name, self.split)
             f = os.path.join(self.annotation_path, fname)
             selected_files = []
             with open(f, "r") as fid:
@@ -267,7 +268,7 @@ class VideoDataset(torch.utils.data.Dataset):
         c = self.get_train_or_test_db()
         paths, vid_id = c.get_rand_vid(label, idx) 
         n_frames = len(paths)
-        if n_frames == self.args.seq_len:
+        if n_frames == self.seq_len:
             idxs = [int(f) for f in range(n_frames)]
         else:
             if self.train:
@@ -315,9 +316,9 @@ class VideoDataset(torch.utils.data.Dataset):
         batch_classes = random.sample(classes, self.way)  # this works without replacement
 
         if self.train:
-            n_queries = self.args.query_per_class
+            n_queries = self.query_per_class
         else:
-            n_queries = self.args.query_per_class_test
+            n_queries = self.query_per_class_test
 
         support_set = []
         support_labels = []
@@ -330,13 +331,13 @@ class VideoDataset(torch.utils.data.Dataset):
             
             #select shots from the chosen classes
             n_total = c.get_num_videos_for_class(bc)
-            idxs = random.sample([i for i in range(n_total)], self.args.shot + n_queries)
+            idxs = random.sample([i for i in range(n_total)], self.shot + n_queries)
 
-            for idx in idxs[0:self.args.shot]:
+            for idx in idxs[0:self.shot]:
                 vid, vid_id = self.get_seq(bc, idx)
                 support_set.append(vid)
                 support_labels.append(bl)
-            for idx in idxs[self.args.shot:]:
+            for idx in idxs[self.shot:]:
                 vid, vid_id = self.get_seq(bc, idx)
                 target_set.append(vid)
                 target_labels.append(bl)

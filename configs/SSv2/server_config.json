@@ -1,0 +1,13 @@
+{
+    "path": "/home/sberti_datasets/SSv2/images_in_class_folders",
+    "traintestlist": "splits/ssv2_OTAM",
+    "seq_len": 8,
+    "img_size": 224,
+    "way": 5,
+    "shot": 1,
+    "query_per_class": 1,
+    "split": 7,
+    "debug_loader": false,
+    "query_per_class_test": 1,
+    "n_train_classes": 64
+}

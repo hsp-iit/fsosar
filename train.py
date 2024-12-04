@@ -45,7 +45,7 @@ def main(rank, world_size):
         # Use DistributedSampler for the dataset
         train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
         dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=4)
-        return iter(dataloader), videodataset
+        return dataloader, videodataset
     dataloader, videodataset = setup_dataloader()
     config["classes_names"] = videodataset.class_folders
     config["n_train_classes"] = len(set(videodataset.train_split.gt_a_list))
@@ -55,6 +55,7 @@ def main(rank, world_size):
     model = SAFSAR(config)
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    model.module.set_train()
     model.train()
     if config["eval_only"]:
         model.load_state_dict(torch.load(config["checkpoint_path"]))
@@ -77,85 +78,92 @@ def main(rank, world_size):
     training = True
 
     while True:
-        elem = next(dataloader)
+        print("Going with dataset.train = ", dataloader.dataset.train)
+        print("dataloader has ", len(dataloader))
+        for elem in dataloader:
 
-        # Data preparation
-        support_set = elem["support_set"].squeeze(0)
-        target_set = elem["target_set"].squeeze(0)
-        target_labels = elem["target_labels"].squeeze(0).long()
-        support_labels = elem['support_labels'].squeeze(0).long()
-        batch_class_list = elem['batch_class_list'].squeeze(0).long()
-        # real_target_labels = elem["real_target_labels"].squeeze(0).long()
+            # Data preparation
+            support_set = elem["support_set"].squeeze(0)
+            target_set = elem["target_set"].squeeze(0)
+            target_labels = elem["target_labels"].squeeze(0).long()
+            support_labels = elem['support_labels'].squeeze(0).long()
+            batch_class_list = elem['batch_class_list'].squeeze(0).long()
+            # real_target_labels = elem["real_target_labels"].squeeze(0).long()
 
-        # Forward passs
-        logits = model(support_set, support_labels, target_set, batch_class_list)
+            # Forward passs
+            logits = model(support_set, support_labels, target_set, batch_class_list)
 
-        # Compute loss
-        losses = model.module.compute_loss(**logits, support_labels=support_labels,
-                                              target_labels=target_labels,
-                                              batch_class_list=batch_class_list)
-        
-        # Optimization
-        if training:
-            model.module.optimize(**losses, optimizer=optimizer)
-
-        # Compute metrics
-        metrics = model.module.compute_metrics(**logits, support_labels=support_labels,
+            # Compute loss
+            losses = model.module.compute_loss(**logits, support_labels=support_labels,
                                                   target_labels=target_labels,
                                                   batch_class_list=batch_class_list)
+            
+            # Optimization
+            if training:
+                model.module.optimize(**losses, optimizer=optimizer)
 
-        average_meter.update({**losses, **metrics})
-    
-        # Training logging
-        if step % log_train_after_steps == 0 and step > 0 and training:
-            train_results = average_meter.average()
-            if log_wandb and rank==0:
-                # print(train_results)
-                wandb.log(train_results)
+            # Compute metrics
+            metrics = model.module.compute_metrics(**logits, support_labels=support_labels,
+                                                      target_labels=target_labels,
+                                                      batch_class_list=batch_class_list)
 
-        # Enable evaluation
-        if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
-            print("ENABLE EVALUATIION")
-            dist.barrier()
+            average_meter.update({**losses, **metrics})
+        
+            # Training logging
+            if step % log_train_after_steps == 0 and step > 0 and training:
+                train_results = average_meter.average()
+                if log_wandb and rank==0:
+                    # print(train_results)
+                    wandb.log(train_results)
+
+            # Enable evaluation
+            if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
+                dist.barrier()
+                if rank == 0:
+                    progress_bar.close()
+                    progress_bar = tqdm(total=config["n_eval_steps"], desc="Evaluation Progress")
+                model.module.set_eval()
+                model.eval()
+                del dataloader
+                del videodataset
+                new_dataloader, new_videodataset = setup_dataloader(train=False)
+                average_meter.average()
+                average_meter = test_meter
+                training = False
+                torch.set_grad_enabled(False)
+                step = 0
+                break  # Break out of the for loop to restart with the new dataloader
+
+            # Disable evaluation
+            if not training and step == config["n_eval_steps"]:
+                dist.barrier()
+                model.module.set_train()
+                model.train()
+                del dataloader
+                del videodataset
+                new_dataloader, new_videodataset = setup_dataloader(train=True)
+                test_results = average_meter.average()
+                if rank == 0:
+                    progress_bar.close()
+                    progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
+                    # print(test_results)
+                    wandb.log(test_results)
+                    # Save the model with test accuracy as the name
+                    acc_vip = test_results["test/fs_acc"]
+                    model_path = os.path.join(checkpoint_dir, f"model_{acc_vip:.4f}.pt")
+                    torch.save(model.state_dict(), model_path)
+                average_meter = train_meter
+                training = True
+                torch.set_grad_enabled(True)
+                step = 0
+                break  # Break out of the for loop to restart with the new dataloader
+
             if rank == 0:
-                progress_bar.close()
-                progress_bar = tqdm(total=config["n_eval_steps"], desc="Evaluation Progress")
-            model.eval()
-            dataloader, dataset = setup_dataloader(train=False)
-            # dataset.train = False
-            average_meter.average()
-            average_meter = test_meter
-            training = False
-            torch.set_grad_enabled(False)
-            step = 0
-        # Disable evaluation
-        if not training and step == config["n_eval_steps"]:
-            print("DISABLE EVALUATION")
-            dist.barrier()
-            model.train()
-            dataloader, dataset = setup_dataloader(train=True)
-            # dataset.train = True
-            test_results = average_meter.average()
-            if rank == 0:
-                progress_bar.close()
-                progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
-                # print(test_results)
-                wandb.log(test_results)
-                # Save the model with test accuracy as the name
-                acc_vip = test_results["test/fs_acc"]
-                model_path = os.path.join(checkpoint_dir, f"model_{acc_vip:.4f}.pt")
-                torch.save(model.state_dict(), model_path)
-            average_meter = train_meter
-            training = True
-            torch.set_grad_enabled(True)
-            step = 0
+                progress_bar.update(1)
+            step += 1
 
-        if rank == 0:
-            progress_bar.update(1)
-        step += 1
-
-    progress_bar.close()
-    dist.destroy_process_group()
+        dataloader = new_dataloader
+        videodataset = new_videodataset
 
 
 if __name__ == "__main__":

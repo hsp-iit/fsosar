@@ -41,6 +41,13 @@ class SAFSAR(nn.Module):
         self.class_name_embeddings = self.get_textual_embeddings(config["classes_names"])
         self.alpha = config["alpha"]
 
+    # Override methods to avoid using l2 loss during evaluation
+    def set_train(self):
+        self.use_l2_loss = True
+
+    def set_eval(self):
+        self.use_l2_loss = False
+
     def _build_transformer(self, hidden_size, num_layers, num_heads, intermediate_size, batch_first=False):
         encoder_layer = TransformerEncoderLayer(d_model=hidden_size, nhead=num_heads, 
                                                 dim_feedforward=intermediate_size, batch_first=batch_first)
@@ -109,10 +116,10 @@ class SAFSAR(nn.Module):
             support_global_logits = self.global_classification_layer(support_features)
             query_global_logits = self.global_classification_layer(query_features)
         else:
-            support_global_logits = None
-            query_global_logits = None
+            support_global_logits = 0. # We need to return something
+            query_global_logits = 0. # We need to return something
 
-        return {"similarity_matrix": similarity_matrix, 
+        return {"similarity_matrix": similarity_matrix,
                 "support_global_logits": support_global_logits,
                 "query_global_logits": query_global_logits}
 
@@ -134,7 +141,7 @@ class SAFSAR(nn.Module):
             l2_loss = l2_loss_support + l2_loss_query
             l2_loss = self.alpha * l2_loss
         else:
-            l2_loss = torch.FloatTensor([0])
+            l2_loss = 0. # We need to return something
 
         return {"l1_loss": l1_loss, "l2_loss": l2_loss}
 
@@ -162,8 +169,8 @@ class SAFSAR(nn.Module):
             global_support_acc = compute_accuracy(support_global_logits, global_support_labels)
             global_query_acc = compute_accuracy(query_global_logits, global_query_labels)
         else:
-            global_support_acc = 0
-            global_query_acc = 0
+            global_support_acc = 0 # We need to return something
+            global_query_acc = 0 # We need to return something
 
         return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc}
 

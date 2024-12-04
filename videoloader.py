@@ -239,6 +239,7 @@ class VideoDataset(torch.utils.data.Dataset):
 
     """ Set len to large number as we use lots of random tasks. Stopping point controlled in run.py. """
     def __len__(self):
+        return 10000000
         if self.train:
             return 1000000
         else:

@@ -12,18 +12,23 @@ class OpenSetLoss(torch.nn.Module):
             logits = logits.squeeze(0)
 
         known_indices = targets != -1
-        known_logits = torch.gather(logits[known_indices], 1, targets[known_indices].unsqueeze(1)).squeeze(1)  # 20
-        known_loss = torch.exp(torch.tensor(1)) - torch.exp(known_logits)
-        known_loss = known_loss.mean()  # TODO mean or sum?
+        if known_indices.sum() > 0:
+            known_logits = torch.gather(logits[known_indices], 1, targets[known_indices].unsqueeze(1)).squeeze(1)  # 20
+            known_loss = torch.exp(torch.tensor(1)) - torch.exp(known_logits)
+            known_loss = known_loss.mean()  # TODO mean or sum?
+        else:
+            known_loss = None
 
         unknown_indices = targets == -1
-        unknown_logits = logits[unknown_indices].reshape(-1)
-        pos_unknown_logits = unknown_logits[unknown_logits > 0]
-        pos_unknown_logits = pos_unknown_logits.mean()
-        unknown_loss = -1 + torch.exp(pos_unknown_logits)
+        if unknown_indices.sum() > 0:
+            unknown_logits = logits[unknown_indices].reshape(-1)
+            pos_unknown_logits = unknown_logits[unknown_logits > 0]
+            pos_unknown_logits = pos_unknown_logits.mean()
+            unknown_loss = -1 + torch.exp(pos_unknown_logits)
+        else:
+            unknown_loss = None
         
-        open_set_loss = known_loss + unknown_loss
-        return open_set_loss
+        return known_loss, unknown_loss
 
 def compute_accuracy(logits, labels):
     _, preds = torch.max(logits, 1)

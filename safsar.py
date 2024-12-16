@@ -161,10 +161,15 @@ class SAFSAR(nn.Module):
         partial_true_target_labels[target_labels == -1] = -1
         open_set_loss = self.open_set_loss(similarity_matrix, partial_true_target_labels.cuda())
 
-        return {"l1_loss": l1_loss, "l2_loss": l2_loss, "open_set_loss": open_set_loss}
+        return {"l1_loss": l1_loss, "l2_loss": l2_loss, "os_known_loss": os_known_loss, "os_unknown_loss": os_unknown_loss}
 
-    def optimize(self, l1_loss, l2_loss, open_set_loss, optimizer):
+    def optimize(self, l1_loss, l2_loss, os_known_loss, os_unknown_loss, optimizer):
         optimizer.zero_grad()
+        l1_loss = l1_loss if l1_loss is not None else torch.FloatTensor([0]).cuda()
+        l2_loss = l2_loss if l2_loss is not None else torch.FloatTensor([0]).cuda()
+        os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
+        os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
+        open_set_loss = os_known_loss + os_unknown_loss
         if self.use_l2_loss:
             (l1_loss + self.alpha*l2_loss + open_set_loss).backward()
         else:
@@ -174,30 +179,37 @@ class SAFSAR(nn.Module):
     def compute_metrics(self, similarity_matrix, support_global_logits, query_global_logits,
                               support_labels, target_labels, batch_class_list):
         known_indices = target_labels != -1
-        similarity_matrix_k = similarity_matrix[known_indices]
-        target_labels_k = target_labels[known_indices]
+        if known_indices.sum() > 0:
+            similarity_matrix_k = similarity_matrix[known_indices]
+            target_labels_k = target_labels[known_indices]
 
-        # NO TARGET LABELS!
-        # ordering doesn't matter, we need to check where target labels is equal to support labels
-        true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
-        fs_acc = compute_accuracy(similarity_matrix_k, true_target_labels)
+            # NO TARGET LABELS!
+            # ordering doesn't matter, we need to check where target labels is equal to support labels
+            true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
+            fs_acc = compute_accuracy(similarity_matrix_k, true_target_labels)
 
-        if self.use_l2_loss:
-            unique_classes = self.train_unique_classes
-            global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
-            global_query_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels]]).cuda()
-            global_support_acc = compute_accuracy(support_global_logits, global_support_labels)
-            global_query_acc = compute_accuracy(query_global_logits, global_query_labels)
+            if self.use_l2_loss:
+                unique_classes = self.train_unique_classes
+                global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
+                global_query_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels]]).cuda()
+                global_support_acc = compute_accuracy(support_global_logits, global_support_labels)
+                global_query_acc = compute_accuracy(query_global_logits, global_query_labels)
+            else:
+                global_support_acc = 0 # We need to return something
+                global_query_acc = 0 # We need to return something
+
+            # this is defined only when known_indices.sum() > 0
+            # OPEN SET PART: AUROC
+            target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
+            for i, elem in enumerate(true_target_labels):
+                if elem != -1:
+                    target_os_matrix[i, elem] = 1
+            os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
         else:
-            global_support_acc = 0 # We need to return something
-            global_query_acc = 0 # We need to return something
-
-        # OPEN SET PART: AUROC
-        target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
-        for i, elem in enumerate(true_target_labels):
-            if elem != -1:
-                target_os_matrix[i, elem] = 1
-        os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
+            fs_acc = None
+            global_support_acc = None
+            global_query_acc = None
+            os_auroc = None
 
         return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc, "os_auroc": os_auroc}
 

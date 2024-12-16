@@ -3,6 +3,28 @@ import json
 import os
 import torch.distributed as dist
 
+class OpenSetLoss(torch.nn.Module):
+    def __init__(self):
+        super(OpenSetLoss, self).__init__()
+
+    def forward(self, logits, targets):
+        if len(logits.shape) > 2:
+            logits = logits.squeeze(0)
+
+        known_indices = targets != -1
+        known_logits = torch.gather(logits[known_indices], 1, targets[known_indices].unsqueeze(1)).squeeze(1)  # 20
+        known_loss = torch.exp(torch.tensor(1)) - torch.exp(known_logits)
+        known_loss = known_loss.mean()  # TODO mean or sum?
+
+        unknown_indices = targets == -1
+        unknown_logits = logits[unknown_indices].reshape(-1)
+        pos_unknown_logits = unknown_logits[unknown_logits > 0]
+        pos_unknown_logits = pos_unknown_logits.mean()
+        unknown_loss = -1 + torch.exp(pos_unknown_logits)
+        
+        open_set_loss = known_loss + unknown_loss
+        return open_set_loss
+
 def compute_accuracy(logits, labels):
     _, preds = torch.max(logits, 1)
     correct = (preds == labels).sum().item()
@@ -17,6 +39,10 @@ class AverageMeter:
         for key, value in input_dict.items():
             if key not in self.values:
                 self.values[key] = []
+            if value == None:
+                continue
+            if type(value) == torch.Tensor:
+                value = value.item()
             self.values[key].append(value)
 
     def average(self):

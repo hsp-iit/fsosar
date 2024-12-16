@@ -15,5 +15,6 @@
     "eval_after_steps": 1000,
     "log_wandb": true,
     "eval_only": false,
-    "n_eval_steps": 1000
+    "n_eval_steps": 1000,
+    "open_set": true
 }

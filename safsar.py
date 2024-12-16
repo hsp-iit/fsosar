@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from transformers import AutoImageProcessor, AutoModelForVideoClassification, BertTokenizer, BertModel
-from utils import compute_accuracy
+from utils import compute_accuracy, OpenSetLoss
+from sklearn.metrics import roc_auc_score
 
 
 class SAFSAR(nn.Module):
@@ -40,6 +41,7 @@ class SAFSAR(nn.Module):
         self.use_textual_embedding = config["use_textual_embedding"]
         self.class_name_embeddings = self.get_textual_embeddings(config["classes_names"])
         self.alpha = config["alpha"]
+        self.open_set_loss = OpenSetLoss()
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
@@ -125,54 +127,77 @@ class SAFSAR(nn.Module):
 
     def compute_loss(self, similarity_matrix, support_global_logits, query_global_logits,
                            support_labels, target_labels, batch_class_list):
-        # Compute L1 loss
-        # NO TARGET LABELS!
-        # ordering doesn't matter, we need to check where target labels is equal to support labels
-        true_target_labels = torch.argsort(support_labels)[target_labels].cuda()
-        l1_loss = torch.nn.functional.cross_entropy(similarity_matrix, true_target_labels)
+        # KNOWN LOSS ######################
+        known_indices = target_labels != -1
+        similarity_matrix_k = similarity_matrix[known_indices]
+        # support_global_logits_k = support_global_logits[known_indices]
+        # query_global_logits_k = query_global_logits[known_indices]
+        target_labels_k = target_labels[known_indices]
+        
+        if known_indices.sum() > 0:
+            # Compute L1 loss
+            # NO TARGET LABELS!
+            # ordering doesn't matter, we need to check where target labels is equal to support labels
+            true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
+            l1_loss = torch.nn.functional.cross_entropy(similarity_matrix_k, true_target_labels)
 
-        # Compute L2 loss
-        if self.use_l2_loss:
-            global_support_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
-            global_query_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[target_labels]]).cuda()  # it was real_target_labels
-            # Make support label one hot to apply them correctly
-            l2_loss_support = torch.nn.functional.cross_entropy(support_global_logits, global_support_labels)
-            l2_loss_query = torch.nn.functional.cross_entropy(query_global_logits, global_query_labels)
-            l2_loss = l2_loss_support + l2_loss_query
-            l2_loss = self.alpha * l2_loss
+            # Compute L2 loss
+            if self.use_l2_loss:
+                global_support_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
+                global_query_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[target_labels]]).cuda()  # it was real_target_labels
+                # Make support label one hot to apply them correctly
+                l2_loss_support = torch.nn.functional.cross_entropy(support_global_logits, global_support_labels)
+                l2_loss_query = torch.nn.functional.cross_entropy(query_global_logits, global_query_labels)
+                l2_loss = l2_loss_support + l2_loss_query
+                # l2_loss = self.alpha * l2_loss
+            else:
+                l2_loss = 0. # We need to return something
         else:
-            l2_loss = 0. # We need to return something
+            l1_loss = None
+            l2_loss = None
 
-        return {"l1_loss": l1_loss, "l2_loss": l2_loss}
+        # UNKNOWN LOSS ######################
+        open_set_loss = self.open_set_loss(similarity_matrix, target_labels.cuda())
 
-    def optimize(self, l1_loss, l2_loss, optimizer):
+        return {"l1_loss": l1_loss, "l2_loss": l2_loss, "open_set_loss": open_set_loss}
+
+    def optimize(self, l1_loss, l2_loss, open_set_loss, optimizer):
         optimizer.zero_grad()
         if self.use_l2_loss:
-            (l1_loss + l2_loss).backward()
+            (l1_loss + self.alpha*l2_loss + open_set_loss).backward()
         else:
-            l1_loss.backward()
+            (l1_loss + open_set_loss).backward()
         optimizer.step()
 
     def compute_metrics(self, similarity_matrix, support_global_logits, query_global_logits,
                               support_labels, target_labels, batch_class_list):
-        # Compute L1 loss
+        known_indices = target_labels != -1
+        similarity_matrix_k = similarity_matrix[known_indices]
+        target_labels_k = target_labels[known_indices]
+
         # NO TARGET LABELS!
         # ordering doesn't matter, we need to check where target labels is equal to support labels
-        true_target_labels = torch.argsort(support_labels)[target_labels].cuda()
+        true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
+        fs_acc = compute_accuracy(similarity_matrix_k, true_target_labels)
+
         if self.use_l2_loss:
             unique_classes = self.train_unique_classes
             global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
             global_query_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels]]).cuda()
-
-        fs_acc = compute_accuracy(similarity_matrix, true_target_labels)
-        if self.use_l2_loss:
             global_support_acc = compute_accuracy(support_global_logits, global_support_labels)
             global_query_acc = compute_accuracy(query_global_logits, global_query_labels)
         else:
             global_support_acc = 0 # We need to return something
             global_query_acc = 0 # We need to return something
 
-        return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc}
+        # OPEN SET PART: AUROC
+        target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
+        for i, elem in enumerate(true_target_labels):
+            if elem != -1:
+                target_os_matrix[i, elem] = 1
+        os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
+
+        return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc, "os_auroc": os_auroc}
 
     def visualize_debug(self):
         pass

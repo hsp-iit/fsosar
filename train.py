@@ -9,6 +9,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 from datetime import datetime
+import random
 from utils import AverageMeter, setup, load_configs, DataArgs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
@@ -44,7 +45,7 @@ def main(rank, world_size):
         # videodataset.transform["test"] = lambda x: custom_transform(x, videodataset.processor)
         # Use DistributedSampler for the dataset
         train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
-        dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=4)
+        dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=config["num_workers"])
         return dataloader, videodataset
     dataloader, videodataset = setup_dataloader()
     config["classes_names"] = videodataset.class_folders
@@ -89,13 +90,30 @@ def main(rank, world_size):
             support_labels = elem['support_labels'].squeeze(0).long()
             batch_class_list = elem['batch_class_list'].squeeze(0).long()
             # real_target_labels = elem["real_target_labels"].squeeze(0).long()
+            unknown_set = elem["unknown_set"].squeeze(0)
+            unknown_labels = elem["unknown_labels"].squeeze(0).long()
+
+            # Put together known and unknown
+            if config["open_set"]:
+                all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], config["img_size"], 3, config["img_size"])
+                all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
+                t = list(zip(all_images, all_labels))
+                random.shuffle(t)
+                all_images, all_labels = zip(*t)
+                # Get only first 5 elements for memory constraints
+                all_images = torch.stack(all_images[:5])
+                all_images = all_images.reshape(-1, config["seq_len"], config["img_size"], 3, config["img_size"])
+                all_labels = torch.stack(all_labels[:5])
+            else:
+                all_images = target_set
+                all_labels = target_labels
 
             # Forward passs
-            logits = model(support_set, support_labels, target_set, batch_class_list)
+            logits = model(support_set, support_labels, all_images, batch_class_list)
 
-            # Compute loss
+            # Compute known and unknown losses
             losses = model.module.compute_loss(**logits, support_labels=support_labels,
-                                                  target_labels=target_labels,
+                                                  target_labels=all_labels,
                                                   batch_class_list=batch_class_list)
             
             # Optimization
@@ -104,7 +122,7 @@ def main(rank, world_size):
 
             # Compute metrics
             metrics = model.module.compute_metrics(**logits, support_labels=support_labels,
-                                                      target_labels=target_labels,
+                                                      target_labels=all_labels,
                                                       batch_class_list=batch_class_list)
 
             average_meter.update({**losses, **metrics})

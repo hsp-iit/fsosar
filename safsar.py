@@ -177,7 +177,6 @@ class SAFSAR(nn.Module):
     def compute_metrics(self, similarity_matrix, support_global_logits, query_global_logits,
                               support_labels, target_labels, batch_class_list):
         known_indices = target_labels != -1
-        true_target_labels = []  # to make the open set part work when no known query is present
         if known_indices.sum() > 0:
             similarity_matrix_k = similarity_matrix[known_indices]
             target_labels_k = target_labels[known_indices]
@@ -196,17 +195,19 @@ class SAFSAR(nn.Module):
             else:
                 global_support_acc = 0 # We need to return something
                 global_query_acc = 0 # We need to return something
+
+            # this is defined only when known_indices.sum() > 0
+            # OPEN SET PART: AUROC
+            target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
+            for i, elem in enumerate(true_target_labels):
+                if elem != -1:
+                    target_os_matrix[i, elem] = 1
+            os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
         else:
             fs_acc = None
             global_support_acc = None
             global_query_acc = None
-
-        # OPEN SET PART: AUROC
-        target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
-        for i, elem in enumerate(true_target_labels):
-            if elem != -1:
-                target_os_matrix[i, elem] = 1
-        os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
+            os_auroc = None
 
         return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc, "os_auroc": os_auroc}
 

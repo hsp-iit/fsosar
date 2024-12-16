@@ -157,7 +157,9 @@ class SAFSAR(nn.Module):
             l2_loss = None
 
         # UNKNOWN LOSS ######################
-        open_set_loss = self.open_set_loss(similarity_matrix, target_labels.cuda())
+        partial_true_target_labels = torch.argsort(support_labels)[target_labels]
+        partial_true_target_labels[target_labels == -1] = -1
+        open_set_loss = self.open_set_loss(similarity_matrix, partial_true_target_labels.cuda())
 
         return {"l1_loss": l1_loss, "l2_loss": l2_loss, "open_set_loss": open_set_loss}
 

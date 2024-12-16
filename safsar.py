@@ -163,8 +163,10 @@ class SAFSAR(nn.Module):
 
     def optimize(self, l1_loss, l2_loss, os_known_loss, os_unknown_loss, optimizer):
         optimizer.zero_grad()
-        os_known_loss = os_known_loss if os_known_loss is not None else 0
-        os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else 0
+        l1_loss = l1_loss if l1_loss is not None else torch.FloatTensor([0]).cuda()
+        l2_loss = l2_loss if l2_loss is not None else torch.FloatTensor([0]).cuda()
+        os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
+        os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
         open_set_loss = os_known_loss + os_unknown_loss
         if self.use_l2_loss:
             (l1_loss + self.alpha*l2_loss + open_set_loss).backward()
@@ -175,6 +177,7 @@ class SAFSAR(nn.Module):
     def compute_metrics(self, similarity_matrix, support_global_logits, query_global_logits,
                               support_labels, target_labels, batch_class_list):
         known_indices = target_labels != -1
+        true_target_labels = []  # to make the open set part work when no known query is present
         if known_indices.sum() > 0:
             similarity_matrix_k = similarity_matrix[known_indices]
             target_labels_k = target_labels[known_indices]

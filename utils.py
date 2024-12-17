@@ -14,7 +14,7 @@ class OpenSetLoss(torch.nn.Module):
         known_indices = targets != -1
         if known_indices.sum() > 0:
             known_logits = torch.gather(logits[known_indices], 1, targets[known_indices].unsqueeze(1)).squeeze(1)  # 20
-            known_loss = torch.exp(torch.tensor(1)) - torch.exp(known_logits)
+            known_loss = torch.full_like(known_logits, fill_value=torch.exp(torch.tensor(1))) - torch.exp(known_logits)
             known_loss = known_loss.mean()  # TODO mean or sum?
         else:
             known_loss = None

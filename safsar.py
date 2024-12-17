@@ -185,13 +185,15 @@ class SAFSAR(nn.Module):
 
             # NO TARGET LABELS!
             # ordering doesn't matter, we need to check where target labels is equal to support labels
+            # INDEED
+            # support_labels = [2, 0, 1], target_labels = [0, 2, 1] means that [[0, 1, 0], [1, 0, 0], [0, 0, 1]] is the correct matrix
             true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
             fs_acc = compute_accuracy(similarity_matrix_k, true_target_labels)
 
             if self.use_l2_loss:
                 unique_classes = self.train_unique_classes
                 global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
-                global_query_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels]]).cuda()
+                global_query_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels_k]]).cuda()
                 global_support_acc = compute_accuracy(support_global_logits, global_support_labels)
                 global_query_acc = compute_accuracy(query_global_logits, global_query_labels)
             else:

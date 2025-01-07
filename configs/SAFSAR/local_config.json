@@ -16,5 +16,6 @@
     "log_wandb": false,
     "eval_only": false,
     "n_eval_steps": 10000,
-    "open_set": true
+    "open_set": true,
+    "self.open_set_loss_weight": 0.1
 }

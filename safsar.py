@@ -42,12 +42,14 @@ class SAFSAR(nn.Module):
         self.class_name_embeddings = self.get_textual_embeddings(config["classes_names"])
         self.alpha = config["alpha"]
         self.open_set_loss = OpenSetLoss()
+        self.open_set_loss_weight = config["open_set_loss_weight"]
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
         self.use_l2_loss = True
 
     def set_eval(self):
+        # During training, l2 loss is useless
         self.use_l2_loss = False
 
     def _build_transformer(self, hidden_size, num_layers, num_heads, intermediate_size, batch_first=False):
@@ -171,9 +173,9 @@ class SAFSAR(nn.Module):
         os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
         open_set_loss = os_known_loss + os_unknown_loss
         if self.use_l2_loss:
-            (l1_loss + self.alpha*l2_loss + open_set_loss).backward()
+            (l1_loss + self.alpha*l2_loss + self.open_set_loss_weight*open_set_loss).backward()
         else:
-            (l1_loss + open_set_loss).backward()
+            (l1_loss + self.open_set_loss_weight*open_set_loss).backward()
         optimizer.step()
 
     def compute_metrics(self, similarity_matrix, support_global_logits, query_global_logits,
@@ -191,11 +193,12 @@ class SAFSAR(nn.Module):
             fs_acc = compute_accuracy(similarity_matrix_k, true_target_labels)
 
             if self.use_l2_loss:
+                query_global_logits_k = query_global_logits[known_indices]
                 unique_classes = self.train_unique_classes
                 global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
-                global_query_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels_k]]).cuda()
+                global_query_labels_k = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels_k]]).cuda()
                 global_support_acc = compute_accuracy(support_global_logits, global_support_labels)
-                global_query_acc = compute_accuracy(query_global_logits, global_query_labels)
+                global_query_acc = compute_accuracy(query_global_logits_k, global_query_labels_k)
             else:
                 global_support_acc = 0 # We need to return something
                 global_query_acc = 0 # We need to return something
@@ -207,13 +210,15 @@ class SAFSAR(nn.Module):
                 if elem != -1:
                     target_os_matrix[i, elem] = 1
             os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
+            similarity_matrix = similarity_matrix.mean()
         else:
             fs_acc = None
             global_support_acc = None
             global_query_acc = None
             os_auroc = None
+            similarity_matrix = None
 
-        return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc, "os_auroc": os_auroc}
+        return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc, "os_auroc": os_auroc, "similarity_matrix": similarity_matrix}
 
     def visualize_debug(self):
         pass

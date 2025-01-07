@@ -17,5 +17,5 @@
     "eval_only": false,
     "n_eval_steps": 1000,
     "open_set": true,
-    "self.open_set_loss_weight": 0.1
+    "open_set_loss_weight": 0.1
 }

@@ -130,6 +130,7 @@ def main(rank, world_size):
             # Training logging
             if step % log_train_after_steps == 0 and step > 0 and training:
                 train_results = average_meter.average()
+                train_results.update(model.module.get_debug_data())
                 if log_wandb and rank==0:
                     # print(train_results)
                     wandb.log(train_results)
@@ -165,6 +166,7 @@ def main(rank, world_size):
                     progress_bar.close()
                     progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
                     # print(test_results)
+                    test_results.update(model.module.get_debug_data())
                     wandb.log(test_results)
                     # Save the model with test accuracy as the name
                     acc_vip = test_results["test/fs_acc"]

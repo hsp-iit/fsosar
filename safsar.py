@@ -4,6 +4,7 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from transformers import AutoImageProcessor, AutoModelForVideoClassification, BertTokenizer, BertModel
 from utils import compute_accuracy, OpenSetLoss
 from sklearn.metrics import roc_auc_score
+import wandb
 
 
 class SAFSAR(nn.Module):
@@ -163,7 +164,13 @@ class SAFSAR(nn.Module):
         partial_true_target_labels[target_labels == -1] = -1
         os_known_loss, os_unknown_loss = self.open_set_loss(similarity_matrix, partial_true_target_labels.cuda())
 
+        self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
+                           "support_labels": wandb.Table(columns=[0], data=support_labels.detach().cpu().numpy()[..., None]), 
+                           "target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None])}
         return {"l1_loss": l1_loss, "l2_loss": l2_loss, "os_known_loss": os_known_loss, "os_unknown_loss": os_unknown_loss}
+
+    def get_debug_data(self):
+        return self.debug_data
 
     def optimize(self, l1_loss, l2_loss, os_known_loss, os_unknown_loss, optimizer):
         optimizer.zero_grad()
@@ -206,7 +213,9 @@ class SAFSAR(nn.Module):
             # this is defined only when known_indices.sum() > 0
             # OPEN SET PART: AUROC
             target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
-            for i, elem in enumerate(true_target_labels):
+            all_target_labels = torch.argsort(support_labels)[target_labels]
+            all_target_labels[target_labels == -1] = -1
+            for i, elem in enumerate(all_target_labels):
                 if elem != -1:
                     target_os_matrix[i, elem] = 1
             os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())

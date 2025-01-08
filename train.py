@@ -115,6 +115,12 @@ def main(rank, world_size):
             losses = model.module.compute_loss(**logits, support_labels=support_labels,
                                                   target_labels=all_labels,
                                                   batch_class_list=batch_class_list)
+
+            if config["visual_debug"]:
+                model.module.visual_debug(logits, videodataset=videodataset,
+                                                  support_labels=support_labels,
+                                                  target_labels=all_labels,
+                                                  batch_class_list=batch_class_list)
             
             # Optimization
             if training:

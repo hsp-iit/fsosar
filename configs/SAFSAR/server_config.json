@@ -19,5 +19,6 @@
     "open_set": true,
     "open_set_loss_weight": 0.1,
     "optimizer": "adam",
-    "scheduler": false
+    "scheduler": false,
+    "visualize_debug": false
 }

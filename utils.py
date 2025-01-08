@@ -2,6 +2,8 @@ import torch
 import json
 import os
 import torch.distributed as dist
+import random
+import numpy as np
 
 class OpenSetLoss(torch.nn.Module):
     def __init__(self):
@@ -61,6 +63,17 @@ def setup(rank, world_size):
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
+    # Set seed for pytorch for reproducibility
+    torch.manual_seed(rank)
+    torch.cuda.manual_seed(rank)
+    torch.cuda.manual_seed_all(rank)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = True
+    torch.cuda.empty_cache()
+    # Set seed for random module
+    random.seed(rank)
+    np.random.seed(rank)
 
 
 def load_configs(model_name, data_name):

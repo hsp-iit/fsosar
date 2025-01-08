@@ -16,7 +16,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
 data_name = "SSv2"
-model_name = "STRM"
+model_name = "SAFSAR"
 
 # Import right model
 model_module = importlib.import_module(model_name.lower())
@@ -133,11 +133,14 @@ def main(rank, world_size):
                                                   target_labels=all_labels,
                                                   batch_class_list=batch_class_list)
 
-            if config["visual_debug"]:
-                model.module.visual_debug(logits, videodataset=videodataset,
+            # Visual debug must be called only during evaluation
+            if config["visual_debug"] and not training:
+                model.module.visual_debug(**logits, videodataset=videodataset,
                                                   support_labels=support_labels,
                                                   target_labels=all_labels,
-                                                  batch_class_list=batch_class_list)
+                                                  batch_class_list=batch_class_list,
+                                                  support_set=support_set,
+                                                  target_set=all_images)
             
             # Optimization
             if training:

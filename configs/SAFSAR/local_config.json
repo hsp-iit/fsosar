@@ -14,10 +14,12 @@
     "log_train_after_steps": 1,
     "eval_after_steps": 3,
     "log_wandb": false,
-    "eval_only": false,
+    "eval_only": true,
     "n_eval_steps": 10000,
     "open_set": true,
     "open_set_loss_weight": 0.1,
     "optimizer": "adam",
-    "scheduler": false
+    "scheduler": false,
+    "visual_debug": true,
+    "checkpoint_path": "checkpoints/safsaros.pt"
 }

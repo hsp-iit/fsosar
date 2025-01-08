@@ -5,6 +5,7 @@ from transformers import AutoImageProcessor, AutoModelForVideoClassification, Be
 from utils import compute_accuracy, OpenSetLoss
 from sklearn.metrics import roc_auc_score
 import wandb
+import numpy as np
 
 
 class SAFSAR(nn.Module):
@@ -76,7 +77,7 @@ class SAFSAR(nn.Module):
         tokenizer = None
         return class_name_embeddings
 
-    def forward(self, support_set, support_labels, target_set, batch_class_list=None):
+    def forward(self, support_set, support_labels, target_set, batch_class_list=None, precomputed_context_features=None):
 
         # Generate support set prototypes
         support_set = support_set.reshape(self.way*self.shot, self.seq_len, 224, 3, 224)
@@ -229,27 +230,53 @@ class SAFSAR(nn.Module):
 
         return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc, "os_auroc": os_auroc, "similarity_matrix": similarity_matrix}
 
-    def visualize_debug(self, similarity_matrix, support_global_logits, query_global_logits, videodataset, support_labels, target_labels, batch_class_list):
-        pass
-        # # Visualize support NOTE for debug use
-        # support_set_flat_labels = [videodataset.class_folders[int(x.item())] for x in batch_class_list[support_labels]]
-        # support_set_flat = support_set.reshape(dataset.way, dataset.shot, dataset.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
-        # counter = 0
-        # for k in support_set_flat:
-        #     for n in k:
-        #         print(support_set_flat_labels[counter])
-        #         for i in n:
-        #             cv2.imshow("image", i.numpy())
-        #             cv2.waitKey(0)
-        #         counter += 1
-        # # Visualize queries
-        # target_set_flat_labels = [videodataset.class_folders[int(x.item())] for x in real_target_labels]
-        # target_set_flat = target_set.reshape(dataset.way, dataset.query_per_class, dataset.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
-        # counter = 0
-        # for k in target_set_flat:
-        #     print(target_set_flat_labels[counter])
-        #     for n in k:
-        #         for i in n:
-        #             cv2.imshow("image", i.numpy())
-        #             cv2.waitKey(0)
-        #     counter += 1
+    def visual_debug(self, similarity_matrix=None, support_global_logits=None, query_global_logits=None, videodataset=None, support_labels=None, target_labels=None, batch_class_list=None, support_set=None, target_set=None):
+        import cv2
+        import imageio
+
+        # Save support set gif
+        support_set = support_set.reshape(self.way, self.shot, self.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
+        concatenated_frames = []
+        support_classes = []
+        for i in range(self.way):
+            for j in range(self.shot):
+                support_classes.append(videodataset.class_folders[int(batch_class_list[support_labels[i*self.shot+j]])])
+                frames = []
+                for k in support_set[i, j]:
+                    frame_rgb = k.cpu().numpy()
+                    frame_rgb = ((frame_rgb - frame_rgb.min()) / (frame_rgb.max() - frame_rgb.min()) * 255).astype(np.uint8)
+                    frames.append(frame_rgb)
+                concatenated_frames.append(frames)
+        concatenated_frames = np.concatenate(concatenated_frames, axis=1)  # 3 for vertival, 2 for horizontal
+        imageio.mimsave('visual_debug/ss.gif', concatenated_frames, duration=250, loop=0)
+        with open('visual_debug/ss.txt', 'w') as f:
+            for item in support_classes:
+                f.write("%s\n" % item)
+
+        # Save queries gif
+        target_set = target_set.reshape(self.way, self.query_per_class, self.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
+        # query_labels = torch.argsort(support_labels)[target_labels]
+        # query_labels[target_labels == -1] = -1
+        unknown_counter = 0
+        for i in range(self.way):
+            for j in range(self.query_per_class):
+                if target_labels[i*self.query_per_class+j] == -1:
+                    query_label = f"unknown_{unknown_counter}"
+                    unknown_counter += 1
+                else:
+                    query_label = videodataset.class_folders[int(batch_class_list[target_labels[i*self.query_per_class+j]])]
+                concatenated_frame = []
+                for k in target_set[i, j]:
+                    frame_rgb = k.cpu().numpy()
+                    frame_rgb = ((frame_rgb - frame_rgb.min()) / (frame_rgb.max() - frame_rgb.min()) * 255).astype(np.uint8)
+                    concatenated_frame.append(frame_rgb)
+                imageio.mimsave(f'visual_debug/{i}_{query_label}.gif', concatenated_frame, duration=250, loop=0)
+
+        # Save results
+        similarity_matrix = similarity_matrix.detach().cpu().numpy()
+        # true_targets = torch.argsort(support_labels)[target_labels]
+        # true_targets[target_labels == -1] = -1
+        with open('visual_debug/similarity_matrix.txt', 'w') as f:
+            for item in similarity_matrix:
+                f.write("%s\n" % item)
+        exit()

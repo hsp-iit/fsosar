@@ -16,5 +16,6 @@
     "eval_only": false,
     "n_eval_steps": 10000,
     "open_set": true,
-    "scheduler": true
+    "scheduler": true,
+    "visualize_debug": false
 }

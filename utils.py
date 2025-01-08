@@ -88,3 +88,14 @@ class DataArgs:
         self.way = config["way"]
         self.split = config["split"]
         self.debug_loader = config["debug_loader"]
+
+
+def split_first_dim_linear(x, first_two_dims):
+    """
+    Undo the stacking operation
+    """
+    x_shape = x.size()
+    new_shape = first_two_dims
+    if len(x_shape) > 1:
+        new_shape += [x_shape[-1]]
+    return x.view(new_shape)

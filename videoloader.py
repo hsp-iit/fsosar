@@ -53,7 +53,7 @@ class Split():
 
 """Dataset for few-shot videos, which returns few-shot tasks. """
 class VideoDataset(torch.utils.data.Dataset):
-    def __init__(self, args):
+    def __init__(self, args, preprocessing="SAFSAR"):
         self.get_item_counter = 0
         self.debug_loader = args.debug_loader
         self.split = args.split
@@ -78,10 +78,11 @@ class VideoDataset(torch.utils.data.Dataset):
         self._select_fold()
         self.read_dir()
 
-        # Change transform to custom ones  TODO FIX FOR STRM
-        self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
-        self.transform["train"] = self.custom_transform
-        self.transform["test"] = self.custom_transform
+        # Change transform to custom ones if we are using SAFSAR
+        if preprocessing == "SAFSAR":
+            self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
+            self.transform["train"] = self.custom_transform
+            self.transform["test"] = self.custom_transform
 
     def custom_transform(self, x):
         return [x for x in self.processor(x)["pixel_values"][0]]

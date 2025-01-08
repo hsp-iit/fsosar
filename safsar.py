@@ -76,7 +76,7 @@ class SAFSAR(nn.Module):
         tokenizer = None
         return class_name_embeddings
 
-    def forward(self, support_set, support_labels, target_set, batch_class_list):
+    def forward(self, support_set, support_labels, target_set, batch_class_list=None):
 
         # Generate support set prototypes
         support_set = support_set.reshape(self.way*self.shot, self.seq_len, 224, 3, 224)

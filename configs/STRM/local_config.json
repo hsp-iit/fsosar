@@ -1,0 +1,20 @@
+
+{
+    "seq_len": 8,
+    "trans_linear_in_dim": 2048,
+    "trans_linear_out_dim": 1152,
+    "lr": 0.001,
+    "method": "resnet50", 
+    "trans_dropout": 0.1,
+    "way": 5,
+    "temp_set": [2],
+    "optimizer": "sgd",
+
+    "log_train_after_steps": 1,
+    "eval_after_steps": 3,
+    "log_wandb": false,
+    "eval_only": false,
+    "n_eval_steps": 10000,
+    "open_set": true,
+    "scheduler": true
+}

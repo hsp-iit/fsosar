@@ -229,7 +229,7 @@ class SAFSAR(nn.Module):
 
         return {"fs_acc": fs_acc, "global_support_acc": global_support_acc, "global_query_acc": global_query_acc, "os_auroc": os_auroc, "similarity_matrix": similarity_matrix}
 
-    def visualize_debug(self):
+    def visualize_debug(self, similarity_matrix, support_global_logits, query_global_logits, videodataset, support_labels, target_labels, batch_class_list):
         pass
         # # Visualize support NOTE for debug use
         # support_set_flat_labels = [videodataset.class_folders[int(x.item())] for x in batch_class_list[support_labels]]

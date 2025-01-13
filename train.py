@@ -1,3 +1,4 @@
+from safsar import SAFSAR
 from videoloader import VideoDataset
 import torch
 import wandb
@@ -9,18 +10,12 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 from datetime import datetime
 import random
-from torch.optim.lr_scheduler import MultiStepLR
 from utils import AverageMeter, setup, load_configs, DataArgs
-import importlib
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
 data_name = "SSv2"
 model_name = "SAFSAR"
-
-# Import right model
-model_module = importlib.import_module(model_name.lower())
-model_class = getattr(model_module, model_name)
 
 
 def main(rank, world_size):
@@ -42,7 +37,7 @@ def main(rank, world_size):
 
     # Data
     def setup_dataloader(train=True):
-        videodataset = VideoDataset(DataArgs(config), preprocessing=model_name)
+        videodataset = VideoDataset(DataArgs(config))
         videodataset.train = train
         # Change preprocessing to custom one
         # videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
@@ -58,7 +53,7 @@ def main(rank, world_size):
     config["train_unique_classes"] = videodataset.train_split.get_unique_classes()
 
     # Model
-    model = model_class(config)
+    model = SAFSAR(config)
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
     model.module.set_train()
@@ -72,14 +67,7 @@ def main(rank, world_size):
         wandb.watch(model, log="all")
 
     # Define optimizer
-    if config["optimizer"] == "adam":
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    elif config["optimizer"] == "sgd":
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-
-    # Define scheduler
-    if config["scheduler"]:
-        scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # Loop variables
     train_meter = AverageMeter("train/")
@@ -88,6 +76,7 @@ def main(rank, world_size):
     if rank == 0:
         progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
     step = 0
+    total_step = 0
     training = True
 
     while True:
@@ -96,57 +85,51 @@ def main(rank, world_size):
         for elem in dataloader:
 
             # Data preparation
-            support_set = elem["support_set"].squeeze(0).cuda()
-            target_set = elem["target_set"].squeeze(0).cuda()
-            target_labels = elem["target_labels"].squeeze(0).long().cuda()
-            support_labels = elem['support_labels'].squeeze(0).long().cuda()
-            batch_class_list = elem['batch_class_list'].squeeze(0).long().cuda()
+            support_set = elem["support_set"].squeeze(0)
+            target_set = elem["target_set"].squeeze(0)
+            target_labels = elem["target_labels"].squeeze(0).long()
+            support_labels = elem['support_labels'].squeeze(0).long()
+            batch_class_list = elem['batch_class_list'].squeeze(0).long()
             # real_target_labels = elem["real_target_labels"].squeeze(0).long()
-            unknown_set = elem["unknown_set"].squeeze(0).cuda()
-            unknown_labels = elem["unknown_labels"].squeeze(0).long().cuda()
+            unknown_set = elem["unknown_set"].squeeze(0)
+            unknown_labels = elem["unknown_labels"].squeeze(0).long()
 
             # Put together known and unknown
-            if config["open_set"]:
-                if model_name == "SAFSAR":
-                    img_shape = (-1, config["seq_len"], config["img_size"], 3, config["img_size"])
-                elif model_name == "STRM":
-                    img_shape = (-1, config["seq_len"], 3, config["img_size"], config["img_size"])
-                all_images = torch.cat((target_set, unknown_set), 0).reshape(img_shape)
+            if config["open_set"] or (not training and not config["open_set"]):
+                all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], config["img_size"], 3, config["img_size"])
                 all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
                 t = list(zip(all_images, all_labels))
                 random.shuffle(t)
                 all_images, all_labels = zip(*t)
                 # Get only first 5 elements for memory constraints
                 all_images = torch.stack(all_images[:5])
-                all_images = all_images.reshape(img_shape)
+                all_images = all_images.reshape(-1, config["seq_len"], config["img_size"], 3, config["img_size"])
                 all_labels = torch.stack(all_labels[:5])
             else:
                 all_images = target_set
                 all_labels = target_labels
 
             # Forward passs
-            logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list,
-                                                                    precomputed_context_features=None)
+            logits = model(support_set, support_labels, all_images, batch_class_list)
 
             # Compute known and unknown losses
             losses = model.module.compute_loss(**logits, support_labels=support_labels,
                                                   target_labels=all_labels,
-                                                  batch_class_list=batch_class_list)
-
+                                                  batch_class_list=batch_class_list,
+                                                  use_open_set=config["open_set"])  # Added as flag
+            
             # Visual debug must be called only during evaluation
-            if config["visual_debug"] and not training:
+            if config["visual_debug"] and not training and rank == 0:
                 model.module.visual_debug(**logits, videodataset=videodataset,
                                                   support_labels=support_labels,
                                                   target_labels=all_labels,
                                                   batch_class_list=batch_class_list,
                                                   support_set=support_set,
                                                   target_set=all_images)
-            
+
             # Optimization
             if training:
-                model.module.optimize(**losses, optimizer=optimizer)
-                if config["scheduler"]:
-                    scheduler.step()
+                model.module.optimize(**losses, optimizer=optimizer, use_open_set=config["open_set"])
 
             # Compute metrics
             metrics = model.module.compute_metrics(**logits, support_labels=support_labels,
@@ -162,6 +145,10 @@ def main(rank, world_size):
                 if log_wandb and rank==0:
                     # print(train_results)
                     wandb.log(train_results)
+
+            # # TODO REMOVE DEBUG
+            # if rank == 0:
+            #     print(average_meter.get_average())
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
@@ -193,12 +180,14 @@ def main(rank, world_size):
                 if rank == 0:
                     progress_bar.close()
                     progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
-                    # print(test_results)
+                    print(test_results)
                     test_results.update(model.module.get_debug_data())
-                    wandb.log(test_results)
+                    if config["log_wandb"]:
+                        wandb.log(test_results)
                     # Save the model with test accuracy as the name
                     acc_vip = test_results["test/fs_acc"]
-                    model_path = os.path.join(checkpoint_dir, f"model_{acc_vip:.4f}.pt")
+                    auroc_vip = test_results["test/os_auroc"]
+                    model_path = os.path.join(checkpoint_dir, f"STEPS_{total_step}_ACC_{acc_vip:.4f}_AUROC_{auroc_vip:.4f}.pt")
                     torch.save(model.state_dict(), model_path)
                 average_meter = train_meter
                 training = True
@@ -209,6 +198,7 @@ def main(rank, world_size):
             if rank == 0:
                 progress_bar.update(1)
             step += 1
+            total_step += 1
 
         dataloader = new_dataloader
         videodataset = new_videodataset

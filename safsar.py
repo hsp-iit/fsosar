@@ -46,6 +46,8 @@ class SAFSAR(nn.Module):
         self.open_set_loss = OpenSetLoss()
         self.open_set_loss_weight = config["open_set_loss_weight"]
 
+        self.debug_samples_counter = 0
+
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
         self.use_l2_loss = True
@@ -130,7 +132,7 @@ class SAFSAR(nn.Module):
                 "query_global_logits": query_global_logits}
 
     def compute_loss(self, similarity_matrix, support_global_logits, query_global_logits,
-                           support_labels, target_labels, batch_class_list):
+                           support_labels, target_labels, batch_class_list, use_open_set):
         # KNOWN LOSS ######################
         known_indices = target_labels != -1
         similarity_matrix_k = similarity_matrix[known_indices]
@@ -161,9 +163,13 @@ class SAFSAR(nn.Module):
             l2_loss = None
 
         # UNKNOWN LOSS ######################
-        partial_true_target_labels = torch.argsort(support_labels)[target_labels]
-        partial_true_target_labels[target_labels == -1] = -1
-        os_known_loss, os_unknown_loss = self.open_set_loss(similarity_matrix, partial_true_target_labels.cuda())
+        if use_open_set:
+            partial_true_target_labels = torch.argsort(support_labels)[target_labels]
+            partial_true_target_labels[target_labels == -1] = -1
+            os_known_loss, os_unknown_loss = self.open_set_loss(similarity_matrix, partial_true_target_labels.cuda())
+        else:
+            os_known_loss = None
+            os_unknown_loss = None
 
         self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
                            "support_labels": wandb.Table(columns=[0], data=support_labels.detach().cpu().numpy()[..., None]), 
@@ -173,18 +179,25 @@ class SAFSAR(nn.Module):
     def get_debug_data(self):
         return self.debug_data
 
-    def optimize(self, l1_loss, l2_loss, os_known_loss, os_unknown_loss, optimizer):
+    def optimize(self, l1_loss, l2_loss, os_known_loss, os_unknown_loss, optimizer, use_open_set):
         optimizer.zero_grad()
-        l1_loss = l1_loss if l1_loss is not None else torch.FloatTensor([0]).cuda()
-        l2_loss = l2_loss if l2_loss is not None else torch.FloatTensor([0]).cuda()
-        os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
-        os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
-        open_set_loss = os_known_loss + os_unknown_loss
-        if self.use_l2_loss:
-            (l1_loss + self.alpha*l2_loss + self.open_set_loss_weight*open_set_loss).backward()
-        else:
-            (l1_loss + self.open_set_loss_weight*open_set_loss).backward()
-        optimizer.step()
+        if l1_loss is not None:
+            l1_loss = l1_loss if l1_loss is not None else torch.FloatTensor([0]).cuda()
+            l2_loss = l2_loss if l2_loss is not None else torch.FloatTensor([0]).cuda()
+            os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
+            os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
+            open_set_loss = os_known_loss + os_unknown_loss
+            if self.use_l2_loss:
+                if use_open_set:
+                    (l1_loss + self.alpha*l2_loss + self.open_set_loss_weight*open_set_loss).backward()
+                else:
+                    (l1_loss + self.alpha*l2_loss).backward()
+            else:
+                if use_open_set:
+                    (l1_loss + self.open_set_loss_weight*open_set_loss).backward()
+                else:
+                    (l1_loss).backward()
+            optimizer.step()
 
     def compute_metrics(self, similarity_matrix, support_global_logits, query_global_logits,
                               support_labels, target_labels, batch_class_list):
@@ -213,13 +226,18 @@ class SAFSAR(nn.Module):
 
             # this is defined only when known_indices.sum() > 0
             # OPEN SET PART: AUROC
-            target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
+            target_os_matrix = (torch.zeros_like(similarity_matrix).cuda()+1)/2
             all_target_labels = torch.argsort(support_labels)[target_labels]
             all_target_labels[target_labels == -1] = -1
             for i, elem in enumerate(all_target_labels):
                 if elem != -1:
                     target_os_matrix[i, elem] = 1
-            os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
+            open_set_scores = similarity_matrix.amax(dim=1).detach().cpu().numpy()
+            open_set_targets = target_os_matrix.amax(dim=1).detach().cpu().numpy().astype(int)
+            if open_set_targets.sum() > 0 and open_set_targets.sum() < len(open_set_targets):
+                os_auroc = roc_auc_score(open_set_targets, open_set_scores)
+            else:
+                os_auroc = None
             similarity_matrix = similarity_matrix.mean()
         else:
             fs_acc = None
@@ -233,6 +251,7 @@ class SAFSAR(nn.Module):
     def visual_debug(self, similarity_matrix=None, support_global_logits=None, query_global_logits=None, videodataset=None, support_labels=None, target_labels=None, batch_class_list=None, support_set=None, target_set=None):
         import cv2
         import imageio
+        import os
 
         # Save support set gif
         support_set = support_set.reshape(self.way, self.shot, self.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
@@ -248,8 +267,9 @@ class SAFSAR(nn.Module):
                     frames.append(frame_rgb)
                 concatenated_frames.append(frames)
         concatenated_frames = np.concatenate(concatenated_frames, axis=1)  # 3 for vertival, 2 for horizontal
-        imageio.mimsave('visual_debug/ss.gif', concatenated_frames, duration=250, loop=0)
-        with open('visual_debug/ss.txt', 'w') as f:
+        os.makedirs(f'visual_debug/{self.debug_samples_counter}', exist_ok=True)
+        imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/ss.gif', concatenated_frames, duration=250, loop=0)
+        with open(f'visual_debug/{self.debug_samples_counter}/ss.txt', 'w') as f:
             for item in support_classes:
                 f.write("%s\n" % item)
 
@@ -270,13 +290,13 @@ class SAFSAR(nn.Module):
                     frame_rgb = k.cpu().numpy()
                     frame_rgb = ((frame_rgb - frame_rgb.min()) / (frame_rgb.max() - frame_rgb.min()) * 255).astype(np.uint8)
                     concatenated_frame.append(frame_rgb)
-                imageio.mimsave(f'visual_debug/{i}_{query_label}.gif', concatenated_frame, duration=250, loop=0)
+                imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/{i}_{query_label}.gif', concatenated_frame, duration=250, loop=0)
 
         # Save results
         similarity_matrix = similarity_matrix.detach().cpu().numpy()
         # true_targets = torch.argsort(support_labels)[target_labels]
         # true_targets[target_labels == -1] = -1
-        with open('visual_debug/similarity_matrix.txt', 'w') as f:
+        with open(f'visual_debug/{self.debug_samples_counter}/similarity_matrix.txt', 'w') as f:
             for item in similarity_matrix:
                 f.write("%s\n" % item)
-        exit()
+        self.debug_samples_counter += 1

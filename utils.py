@@ -53,8 +53,18 @@ class AverageMeter:
             self.values[key].append(value)
 
     def average(self):
+        for key in self.values.values():
+            if len(key) == 0:
+                key.append(0)
         averaged_values = {f"{self.prefix}{key}": sum(values) / len(values) for key, values in self.values.items()}
         self.values.clear()
+        return averaged_values
+
+    def get_average(self):
+        for key in self.values.values():
+            if len(key) == 0:
+                key.append(0)
+        averaged_values = {f"{self.prefix}{key}": sum(values) / len(values) for key, values in self.values.items()}
         return averaged_values
 
 
@@ -101,14 +111,3 @@ class DataArgs:
         self.way = config["way"]
         self.split = config["split"]
         self.debug_loader = config["debug_loader"]
-
-
-def split_first_dim_linear(x, first_two_dims):
-    """
-    Undo the stacking operation
-    """
-    x_shape = x.size()
-    new_shape = first_two_dims
-    if len(x_shape) > 1:
-        new_shape += [x_shape[-1]]
-    return x.view(new_shape)

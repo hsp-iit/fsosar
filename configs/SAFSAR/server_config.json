@@ -12,13 +12,13 @@
     "alpha": 0.1,
     "lr": 4e-5,
     "log_train_after_steps": 10,
-    "eval_after_steps": 1000,
+    "eval_after_steps": 10000,
     "log_wandb": true,
     "eval_only": false,
-    "n_eval_steps": 1000,
-    "open_set": true,
+    "n_eval_steps": 20000,
+    "open_set": false,  
     "open_set_loss_weight": 0.1,
     "optimizer": "adam",
     "scheduler": false,
-    "visualize_debug": false
+    "visual_debug": false
 }

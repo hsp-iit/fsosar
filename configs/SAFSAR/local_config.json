@@ -21,5 +21,5 @@
     "optimizer": "adam",
     "scheduler": false,
     "visual_debug": true,
-    "checkpoint_path": "checkpoints/safsaros.pt"
+    "checkpoint_path": "checkpoints/STEPS_60000_ACC_0.6917_AUROC_0.7367.pt"
 }

@@ -278,6 +278,7 @@ class SAFSAR(nn.Module):
         # query_labels = torch.argsort(support_labels)[target_labels]
         # query_labels[target_labels == -1] = -1
         unknown_counter = 0
+        query_labels = []
         for i in range(self.way):
             for j in range(self.query_per_class):
                 if target_labels[i*self.query_per_class+j] == -1:
@@ -285,6 +286,7 @@ class SAFSAR(nn.Module):
                     unknown_counter += 1
                 else:
                     query_label = videodataset.class_folders[int(batch_class_list[target_labels[i*self.query_per_class+j]])]
+                query_labels.append(query_label)
                 concatenated_frame = []
                 for k in target_set[i, j]:
                     frame_rgb = k.cpu().numpy()
@@ -293,10 +295,15 @@ class SAFSAR(nn.Module):
                 imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/{i}_{query_label}.gif', concatenated_frame, duration=250, loop=0)
 
         # Save results
+        true_targets = torch.argsort(support_labels)[target_labels]
+        true_targets[target_labels == -1] = -1
         similarity_matrix = similarity_matrix.detach().cpu().numpy()
-        # true_targets = torch.argsort(support_labels)[target_labels]
-        # true_targets[target_labels == -1] = -1
         with open(f'visual_debug/{self.debug_samples_counter}/similarity_matrix.txt', 'w') as f:
+            for item in support_classes:
+                f.write("%s " % item)
+            f.write("\n")
+            lazy_counter = 0
             for item in similarity_matrix:
-                f.write("%s\n" % item)
+                f.write(f"%s\t{true_targets[lazy_counter]} {query_labels[lazy_counter]}\n" % item)
+                lazy_counter += 1
         self.debug_samples_counter += 1

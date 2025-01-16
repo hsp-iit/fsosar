@@ -13,6 +13,7 @@ import random
 import importlib
 from torch.optim.lr_scheduler import MultiStepLR
 from utils import AverageMeter, setup, load_configs, DataArgs
+import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
@@ -21,8 +22,8 @@ model_name = "STRM"
 
 
 def main(rank, world_size):
-    setup(rank, world_size)
     config = load_configs(model_name, data_name)
+    setup(rank, world_size, set_seeds=config["eval_only"])
 
     # Create directory for saving checkpoints
     if rank == 0:
@@ -41,11 +42,6 @@ def main(rank, world_size):
     def setup_dataloader(train=True):
         videodataset = VideoDataset(DataArgs(config), preprocessing=model_name)
         videodataset.train = train
-        # Change preprocessing to custom one
-        # videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
-        # videodataset.transform["train"] = lambda x: custom_transform(x, videodataset.processor)
-        # videodataset.transform["test"] = lambda x: custom_transform(x, videodataset.processor)
-        # Use DistributedSampler for the dataset
         train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
         dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=config["num_workers"])
         return dataloader, videodataset
@@ -93,10 +89,9 @@ def main(rank, world_size):
     training = True
 
     while True:
-        print("Going with dataset.train = ", dataloader.dataset.train)
-        print("dataloader has ", len(dataloader))
+        # print("Going with dataset.train = ", dataloader.dataset.train)
+        # print("dataloader has ", len(dataloader))
         for elem in dataloader:
-
             # Data preparation
             support_set = elem["support_set"].squeeze(0)
             target_set = elem["target_set"].squeeze(0)
@@ -159,12 +154,8 @@ def main(rank, world_size):
                 train_results = average_meter.average()
                 train_results.update(model.module.get_debug_data())
                 if log_wandb and rank==0:
-                    # print(train_results)
                     wandb.log(train_results)
 
-            # # TODO REMOVE DEBUG
-            # if rank == 0:
-            #     print(average_meter.get_average())
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):

@@ -9,7 +9,7 @@
     "way": 5,
     "temp_set": [2],
 
-    "log_train_after_steps": 1,
+    "log_train_after_steps": 10,
     "eval_after_steps": 10000,
     "log_wandb": true,
     "eval_only": false,

@@ -655,53 +655,56 @@ class STRM(nn.Module):
         return {"task_loss": task_loss, "task_loss_post_pat": task_loss_post_pat, "os_known_loss": os_known_loss, "os_unknown_loss": os_unknown_loss}
 
     def optimize(self, task_loss, task_loss_post_pat, os_known_loss, os_unknown_loss, optimizer=None, use_open_set=None):
-        os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
-        os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
-        all_task_loss = task_loss + 0.1*task_loss_post_pat + 0.1*(os_known_loss + os_unknown_loss)
-        optimizer.zero_grad()
-        all_task_loss.backward(retain_graph=False)
-        optimizer.step()
+        if task_loss is not None:
+            os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
+            os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
+            all_task_loss = task_loss + 0.1*task_loss_post_pat + 0.1*(os_known_loss + os_unknown_loss)
+            optimizer.zero_grad()
+            all_task_loss.backward(retain_graph=False)
+            optimizer.step()
+        else:
+            optimizer.zero_grad()
 
     def compute_metrics(self, logits, logits_post_pat, support_labels, target_labels, batch_class_list):
-            known_indices = target_labels != -1
-            if len(logits.shape) == 3:
-                logits = logits.squeeze(0)
-            if len(logits_post_pat.shape) == 3:
-                logits_post_pat = logits_post_pat.squeeze(0)
-            if known_indices.sum() > 0:
-                logits_k = logits[known_indices]
-                logits_post_pat_k = logits_post_pat[known_indices]
-                logits_k = logits_k + 0.1*logits_post_pat_k
-                target_labels_k = target_labels[known_indices]
+        known_indices = target_labels != -1
+        if len(logits.shape) == 3:
+            logits = logits.squeeze(0)
+        if len(logits_post_pat.shape) == 3:
+            logits_post_pat = logits_post_pat.squeeze(0)
+        if known_indices.sum() > 0:
+            logits_k = logits[known_indices]
+            logits_post_pat_k = logits_post_pat[known_indices]
+            logits_k = logits_k + 0.1*logits_post_pat_k
+            target_labels_k = target_labels[known_indices]
 
-                # NO TARGET LABELS!
-                # ordering doesn't matter, we need to check where target labels is equal to support labels
-                # INDEED
-                # support_labels = [2, 0, 1], target_labels = [0, 2, 1] means that [[0, 1, 0], [1, 0, 0], [0, 0, 1]] is the correct matrix
-                true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
-                fs_acc = compute_accuracy(logits_k, true_target_labels)
+            # NO TARGET LABELS!
+            # ordering doesn't matter, we need to check where target labels is equal to support labels
+            # INDEED
+            # support_labels = [2, 0, 1], target_labels = [0, 2, 1] means that [[0, 1, 0], [1, 0, 0], [0, 0, 1]] is the correct matrix
+            true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
+            fs_acc = compute_accuracy(logits_k, true_target_labels)
 
-                # this is defined only when known_indices.sum() > 0
-                # OPEN SET PART: AUROC
-                target_os_matrix = (torch.zeros_like(logits).cuda()+1)/2
-                all_target_labels = torch.argsort(support_labels)[target_labels]
-                all_target_labels[target_labels == -1] = -1
-                for i, elem in enumerate(all_target_labels):
-                    if elem != -1:
-                        target_os_matrix[i, elem] = 1
-                open_set_scores = logits.amax(dim=1).detach().cpu().numpy()
-                open_set_targets = target_os_matrix.amax(dim=1).detach().cpu().numpy().astype(int)
-                if open_set_targets.sum() > 0 and open_set_targets.sum() < len(open_set_targets):
-                    os_auroc = roc_auc_score(open_set_targets, open_set_scores)
-                else:
-                    os_auroc = None
-                similarity_matrix = logits.mean()
+            # this is defined only when known_indices.sum() > 0
+            # OPEN SET PART: AUROC
+            target_os_matrix = (torch.zeros_like(logits).cuda()+1)/2
+            all_target_labels = torch.argsort(support_labels)[target_labels]
+            all_target_labels[target_labels == -1] = -1
+            for i, elem in enumerate(all_target_labels):
+                if elem != -1:
+                    target_os_matrix[i, elem] = 1
+            open_set_scores = logits.amax(dim=1).detach().cpu().numpy()
+            open_set_targets = target_os_matrix.amax(dim=1).detach().cpu().numpy().astype(int)
+            if open_set_targets.sum() > 0 and open_set_targets.sum() < len(open_set_targets):
+                os_auroc = roc_auc_score(open_set_targets, open_set_scores)
             else:
-                fs_acc = None
                 os_auroc = None
-                similarity_matrix = None
+            similarity_matrix = logits.mean()
+        else:
+            fs_acc = None
+            os_auroc = None
+            similarity_matrix = None
 
-            return {"fs_acc": fs_acc, "os_auroc": os_auroc, "similarity_matrix": similarity_matrix}
+        return {"fs_acc": fs_acc, "os_auroc": os_auroc, "similarity_matrix": similarity_matrix}
 
     def get_debug_data(self):
         return self.debug_data

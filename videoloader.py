@@ -101,7 +101,7 @@ class VideoDataset(torch.utils.data.Dataset):
         else:
             print("img size transforms not setup")
             exit(1)
-        video_transform_list.append(RandomHorizontalFlip())
+        # video_transform_list.append(RandomHorizontalFlip())
         video_transform_list.append(RandomCrop(self.img_size))
 
         video_test_list.append(CenterCrop(self.img_size))
@@ -268,7 +268,7 @@ class VideoDataset(torch.utils.data.Dataset):
     """Gets a single video sequence. Handles sampling if there are more frames than specified. """
     def get_seq(self, label, idx=-1):
         c = self.get_train_or_test_db()
-        paths, vid_id = c.get_rand_vid(label, idx) 
+        paths, vid_id = c.get_rand_vid(label, idx)
         n_frames = len(paths)
         if n_frames == self.seq_len:
             idxs = [int(f) for f in range(n_frames)]
@@ -297,7 +297,7 @@ class VideoDataset(torch.utils.data.Dataset):
             
             if self.seq_len == 1:
                 idxs = [random.randint(start, end-1)]
-
+        # print(f"opening {paths[0]}")
         imgs = [self.read_single_image(paths[i]) for i in idxs]
         if (self.transform is not None):
             if self.train:

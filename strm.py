@@ -10,6 +10,8 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import torchvision.models as models
 from sklearn.metrics import roc_auc_score
+import wandb
+
 
 NUM_SAMPLES=1
 
@@ -92,7 +94,7 @@ class DistanceLoss(nn.Module):
         '''
             4-queries * 5 classes x 5(5 classes) and store this in a logit vector
         '''
-        dist_all = torch.zeros(n_queries, self.args["way"]) # 20 x 5
+        dist_all = torch.zeros(n_queries, self.args["way"]).to(support_set.device) # 20 x 5
 
         for label_idx, c in enumerate(unique_labels):
             # Select keys corresponding to this class from the support set tuples
@@ -211,7 +213,7 @@ class TemporalCrossTransformer(nn.Module):
         '''
             4-queries * 5 classes x 5(5 classes) and store this in a logit vector
         '''
-        all_distances_tensor = torch.zeros(n_queries, self.args["way"]) # 20 x 5
+        all_distances_tensor = torch.zeros(n_queries, self.args["way"]).to(device) # 20 x 5
 
         for label_idx, c in enumerate(unique_labels):
         
@@ -599,7 +601,7 @@ class STRM(nn.Module):
     def set_train(self):
         return  # Nothing to do for STRM, train is called in main loop
 
-    def compute_loss(self, logits, logits_post_pat, support_labels, target_labels, batch_class_list):
+    def compute_loss(self, logits, logits_post_pat, support_labels=None, target_labels=None, batch_class_list=None, use_open_set=None):
 
         # logits = logits.cuda()
         # logits_post_pat = logits_post_pat.cuda()
@@ -638,13 +640,21 @@ class STRM(nn.Module):
             task_loss_post_pat = None
 
         # UNKNOWN LOSS ######################
-        partial_true_target_labels = torch.argsort(support_labels)[target_labels]
-        partial_true_target_labels[target_labels == -1] = -1
-        os_known_loss, os_unknown_loss = self.open_set_loss(logits, partial_true_target_labels.cuda())
+        if use_open_set:
+            partial_true_target_labels = torch.argsort(support_labels)[target_labels]
+            partial_true_target_labels[target_labels == -1] = -1
+            os_known_loss, os_unknown_loss = self.open_set_loss(logits, partial_true_target_labels.cuda())
+        else:
+            os_known_loss = None
+            os_unknown_loss = None
+
+        self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(logits.shape[0])), data=logits.detach().cpu().numpy().tolist()),
+                    "support_labels": wandb.Table(columns=[0], data=support_labels.detach().cpu().numpy()[..., None]), 
+                    "target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None])}
 
         return {"task_loss": task_loss, "task_loss_post_pat": task_loss_post_pat, "os_known_loss": os_known_loss, "os_unknown_loss": os_unknown_loss}
 
-    def optimize(self, task_loss, task_loss_post_pat, os_known_loss, os_unknown_loss, optimizer):
+    def optimize(self, task_loss, task_loss_post_pat, os_known_loss, os_unknown_loss, optimizer=None, use_open_set=None):
         os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
         os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
         all_task_loss = task_loss + 0.1*task_loss_post_pat + 0.1*(os_known_loss + os_unknown_loss)
@@ -673,14 +683,19 @@ class STRM(nn.Module):
 
                 # this is defined only when known_indices.sum() > 0
                 # OPEN SET PART: AUROC
-                target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
+                target_os_matrix = (torch.zeros_like(logits).cuda()+1)/2
                 all_target_labels = torch.argsort(support_labels)[target_labels]
                 all_target_labels[target_labels == -1] = -1
                 for i, elem in enumerate(all_target_labels):
                     if elem != -1:
                         target_os_matrix[i, elem] = 1
-                os_auroc = roc_auc_score(target_os_matrix.reshape(-1).detach().cpu().numpy(), similarity_matrix.reshape(-1).detach().cpu().numpy())
-                similarity_matrix = similarity_matrix.mean()
+                open_set_scores = logits.amax(dim=1).detach().cpu().numpy()
+                open_set_targets = target_os_matrix.amax(dim=1).detach().cpu().numpy().astype(int)
+                if open_set_targets.sum() > 0 and open_set_targets.sum() < len(open_set_targets):
+                    os_auroc = roc_auc_score(open_set_targets, open_set_scores)
+                else:
+                    os_auroc = None
+                similarity_matrix = logits.mean()
             else:
                 fs_acc = None
                 os_auroc = None
@@ -688,30 +703,8 @@ class STRM(nn.Module):
 
             return {"fs_acc": fs_acc, "os_auroc": os_auroc, "similarity_matrix": similarity_matrix}
 
+    def get_debug_data(self):
+        return self.debug_data
 
-
-# if __name__ == "__main__":
-#     class ArgsObject(object):
-#         def __init__(self):
-#             self.trans_linear_in_dim = 512
-#             self.trans_linear_out_dim = 128
-
-#             self.way = 5
-#             self.shot = 1
-#             self.query_per_class = 5
-#             self.trans_dropout = 0.1
-#             self.seq_len = 8 
-#             self.img_size = 84
-#             self.method = "resnet18"
-#             self.num_gpus = 1
-#             self.temp_set = [2,3]
-#     args = ArgsObject()
-#     torch.manual_seed(STRM(args))
-    
-#     support_imgs = torch.rand(args["way"] * args["shot"] * args["seq_len"],3, args["img_size"], args["img_size"])
-#     target_imgs = torch.rand(args["way"] * args["query_per_class"] * args["seq_len"] ,3, args["img_size"], args["img_size"])
-#     support_labels = torch.tensor([0,1,2,3,4])
-
-#     out = model(support_imgs, support_labels, target_imgs)
-
-#     print("STRM returns the distances from each query to each class prototype.  Use these as logits.  Shape: {}".format(out['logits'].shape))
+    def set_eval(self):
+        return

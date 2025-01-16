@@ -10,12 +10,14 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 from datetime import datetime
 import random
+import importlib
+from torch.optim.lr_scheduler import MultiStepLR
 from utils import AverageMeter, setup, load_configs, DataArgs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
 data_name = "SSv2"
-model_name = "SAFSAR"
+model_name = "STRM"
 
 
 def main(rank, world_size):
@@ -37,7 +39,7 @@ def main(rank, world_size):
 
     # Data
     def setup_dataloader(train=True):
-        videodataset = VideoDataset(DataArgs(config))
+        videodataset = VideoDataset(DataArgs(config), preprocessing=model_name)
         videodataset.train = train
         # Change preprocessing to custom one
         # videodataset.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
@@ -53,7 +55,7 @@ def main(rank, world_size):
     config["train_unique_classes"] = videodataset.train_split.get_unique_classes()
 
     # Model
-    model = SAFSAR(config)
+    model = getattr(importlib.import_module(model_name.lower()), model_name)(config)
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
     model.module.set_train()
@@ -67,7 +69,18 @@ def main(rank, world_size):
         wandb.watch(model, log="all")
 
     # Define optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    if model_name == "SAFSAR":
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    elif model_name == "STRM":
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    else:
+        raise Exception("Wrong model name")
+
+    # Define scheduler
+    if model_name == "STRM":
+        scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
+    else:
+        scheduler = None
 
     # Loop variables
     train_meter = AverageMeter("train/")
@@ -110,7 +123,7 @@ def main(rank, world_size):
                 all_labels = target_labels
 
             # Forward passs
-            logits = model(support_set, support_labels, all_images, batch_class_list)
+            logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list)
 
             # Compute known and unknown losses
             losses = model.module.compute_loss(**logits, support_labels=support_labels,
@@ -130,6 +143,9 @@ def main(rank, world_size):
             # Optimization
             if training:
                 model.module.optimize(**losses, optimizer=optimizer, use_open_set=config["open_set"])
+                if scheduler:
+                    scheduler.step()
+
 
             # Compute metrics
             metrics = model.module.compute_metrics(**logits, support_labels=support_labels,

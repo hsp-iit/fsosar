@@ -85,7 +85,7 @@ class VideoDataset(torch.utils.data.Dataset):
             self.transform["test"] = self.custom_transform
 
     def custom_transform(self, x):
-        return [x for x in self.processor(x)["pixel_values"][0]]
+        return [x for x in self.processor(x)["pixel_values"][0]]  # swapaxes(0, 2)
 
     """Setup crop sizes/flips for augmentation during training and centre crop for testing"""
     def setup_transforms(self):

@@ -239,18 +239,18 @@ class TemporalCrossTransformer(nn.Module):
             query_prototype = torch.sum(query_prototype, dim=1).to(device) # 20 x 28 x 1152 -> Sum across all the support set values of the corres. class
             
             # calculate distances from queries to query-specific class prototypes
-            # diff = mh_queries_vs - query_prototype # 20 x 28 x 1152
-            # norm_sq = torch.norm(diff, dim=[-2,-1])**2 # 20 
-            # distance = torch.div(norm_sq, self.tuples_len) # 20
+            diff = mh_queries_vs - query_prototype # 20 x 28 x 1152
+            norm_sq = torch.norm(diff, dim=[-2,-1])**2 # 20 
+            distance = torch.div(norm_sq, self.tuples_len) # 20
             
-            # # multiply by -1 to get logits
-            # distance = distance * -1
+            # multiply by -1 to get logits
+            distance = distance * -1
 
             # Normalize features before cosine similarity
-            mh_queries_vs = mh_queries_vs / torch.norm(mh_queries_vs, dim=-1).unsqueeze(-1)
-            query_prototype = query_prototype / torch.norm(query_prototype, dim=-1).unsqueeze(-1)
-            distance = self.similarity_function(mh_queries_vs.permute(0, 2, 1), query_prototype.permute(0, 2, 1)) # 20 x 28
-            distance = distance.mean(dim=1)
+            # mh_queries_vs = mh_queries_vs / torch.norm(mh_queries_vs, dim=-1).unsqueeze(-1)
+            # query_prototype = query_prototype / torch.norm(query_prototype, dim=-1).unsqueeze(-1)
+            # distance = self.similarity_function(mh_queries_vs.permute(0, 2, 1), query_prototype.permute(0, 2, 1)) # 20 x 28
+            # distance = distance.mean(dim=1)
 
             c_idx = c.long()
             all_distances_tensor[:,c_idx] = distance # 20
@@ -603,10 +603,15 @@ class STRM(nn.Module):
 
     def compute_loss(self, logits, logits_post_pat, support_labels=None, target_labels=None, batch_class_list=None, use_open_set=None):
 
-        # logits = logits.cuda()
-        # logits_post_pat = logits_post_pat.cuda()
-        # support_labels = support_labels.cuda()
-        # target_labels = target_labels.cuda()
+        task_loss = self.loss(logits, target_labels.cuda(), logits.device) / 5
+        task_loss_post_pat = self.loss(logits_post_pat, target_labels.cuda(), logits.device) / 5
+        self.debug_data = {}
+        # "similarity_matrix": wandb.Table(columns=list(range(logits.shape[0])), data=logits.detach().cpu().numpy().tolist()),
+        #             "support_labels": wandb.Table(columns=[0], data=support_labels.detach().cpu().numpy()[..., None]), 
+        #             "target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None])}
+
+        return {"task_loss": task_loss, "task_loss_post_pat": task_loss_post_pat, "os_known_loss": None, "os_unknown_loss": None}
+
         # KNOWN LOSS ######################
         if len(logits.shape) == 3:
             logits = logits.squeeze(0)
@@ -616,25 +621,14 @@ class STRM(nn.Module):
         if known_indices.sum() > 0:
             logits_k = logits[known_indices]
             logits_post_pat_k = logits_post_pat[known_indices]
-            # support_global_logits_k = support_global_logits[known_indices]
-            # query_global_logits_k = query_global_logits[known_indices]
             target_labels_k = target_labels[known_indices]
+            true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
 
             # Target logits after applying query-distance-based similarity metric on patch-level enriched features
-            target_labels_k = target_labels_k.to(logits.device)
-            task_loss = self.loss(logits_k.unsqueeze(0), target_labels_k, logits.device) / self.args["way"]
-            task_loss_post_pat = self.loss(logits_post_pat_k.unsqueeze(0), target_labels_k, logits.device) / self.args["way"]
+            true_target_labels = true_target_labels.to(logits.device)
+            task_loss = self.loss(logits_k.unsqueeze(0), true_target_labels, logits.device) / known_indices.sum()
+            task_loss_post_pat = self.loss(logits_post_pat_k.unsqueeze(0), true_target_labels, logits.device) / known_indices.sum()
 
-            # Joint loss
-            # all_task_loss = task_loss + 0.1*task_loss_post_pat  # + open_set_loss_value + 0.1*open_set_loss_value_post_pat  # added open_set_loss
-
-            # # Add the logits before computing the accuracy
-            # target_logits = target_logits + 0.1*target_logits_post_pat
-            # # Open set accuracy (FSOS acc) (50% closed set known, 50% open set unknown)
-            # target_labels = torch.cat([target_labels, torch.full_like(target_labels.to(self.device), fill_value=-1)])
-            # task_accuracy = self.accuracy_fn(target_logits, target_labels)
-
-            # all_task_loss.backward(retain_graph=False)
         else:
             task_loss = None
             task_loss_post_pat = None

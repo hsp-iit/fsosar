@@ -14,6 +14,6 @@
     "log_wandb": true,
     "eval_only": false,
     "n_eval_steps": 20000,
-    "open_set": true,
+    "open_set": false,
     "visual_debug": false
 }

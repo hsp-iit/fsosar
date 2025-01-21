@@ -10,15 +10,5 @@
     "use_l2_loss": true,
     "use_textual_embedding": true,
     "alpha": 0.1,
-    "lr": 4e-5,
-    "log_train_after_steps": 10,
-    "eval_after_steps": 10000,
-    "log_wandb": true,
-    "eval_only": false,
-    "n_eval_steps": 20000,
-    "open_set": false,  
-    "open_set_loss_weight": 0.1,
-    "optimizer": "adam",
-    "scheduler": false,
-    "visual_debug": false
+    "lr": 4e-5
 }

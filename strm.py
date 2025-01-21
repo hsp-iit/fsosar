@@ -110,13 +110,13 @@ class DistanceLoss(nn.Module):
             support_embed = self.relu(support_embed) # 140 x 1024
 
             # Calculate p-norm distance between the query embedding and the support set embedding
-            # distmat = torch.cdist(query_embed, support_embed) # 560[20 x 28] x 140[28 x 5]  # Closed set
+            distmat = torch.cdist(query_embed, support_embed) # 560[20 x 28] x 140[28 x 5]  # Closed set
             # Normalize features before cosine similarity
-            query_embed = query_embed / torch.norm(query_embed, dim=-1).unsqueeze(-1)
-            support_embed = support_embed / torch.norm(support_embed, dim=-1).unsqueeze(-1)
-            distmat = torch.nn.functional.cosine_similarity(query_embed.unsqueeze(1), 
-                                                            support_embed.unsqueeze(0), dim=-1)  # Shape: (1120, 140)
-            distmat = -distmat  # Since they use a distance and we use a similarity, we need to do this
+            # query_embed = query_embed / torch.norm(query_embed, dim=-1).unsqueeze(-1)
+            # support_embed = support_embed / torch.norm(support_embed, dim=-1).unsqueeze(-1)
+            # distmat = torch.nn.functional.cosine_similarity(query_embed.unsqueeze(1), 
+            #                                                 support_embed.unsqueeze(0), dim=-1)  # Shape: (1120, 140)
+            # distmat = -distmat  # Since they use a distance and we use a similarity, we need to do this
 
             # Across the 140 tuples compared against, get the minimum distance for each of the 560 queries
             min_dist = distmat.min(dim=1)[0].reshape(n_queries, self.tuples_len) # 20[5-way x 4-queries] x 28
@@ -156,8 +156,8 @@ class TemporalCrossTransformer(nn.Module):
         max_len = int(self.args["seq_len"] * 1.5)
         self.pe = PositionalEncoding(self.args["trans_linear_in_dim"], self.args["trans_dropout"], max_len=max_len)
 
-        self.k_linear = nn.Linear(self.args["trans_linear_in_dim"] * temporal_set_size, self.args["trans_linear_out_dim"])#.cuda()
-        self.v_linear = nn.Linear(self.args["trans_linear_in_dim"] * temporal_set_size, self.args["trans_linear_out_dim"])#.cuda()
+        self.k_linear = nn.Linear(self.args["trans_linear_in_dim"] * temporal_set_size, self.args["trans_linear_out_dim"])
+        self.v_linear = nn.Linear(self.args["trans_linear_in_dim"] * temporal_set_size, self.args["trans_linear_out_dim"])
 
         self.norm_k = nn.LayerNorm(self.args["trans_linear_out_dim"])
         self.norm_v = nn.LayerNorm(self.args["trans_linear_out_dim"])
@@ -492,14 +492,14 @@ class STRM(nn.Module):
 
         # MLP-mixing frame-level enrichment over the 8 frames.
         self.fr_enrich = MLP_Mix_Enrich(self.args["trans_linear_in_dim"], self.args["seq_len"])
-
-        # Open set part
-        self.open_set_loss = OpenSetLoss()
+        
 
     def loss(self, test_logits_sample, test_labels, device):
         """
         Compute the classification loss.
         """
+        if len(test_logits_sample.shape) == 2:
+            test_logits_sample = test_logits_sample.unsqueeze(0)
         size = test_logits_sample.size()
         sample_count = size[0]  # scalar for the loop counter
         num_samples = torch.tensor([sample_count], dtype=torch.float, device=device, requires_grad=False)
@@ -562,8 +562,8 @@ class STRM(nn.Module):
         sample_logits_fr = all_logits_fr
         sample_logits_fr = torch.mean(sample_logits_fr, dim=[-1]) # 20 x 5
 
-        return_dict = {'logits': split_first_dim_linear(sample_logits_fr, [NUM_SAMPLES, target_features.shape[0]]), 
-                    'logits_post_pat': split_first_dim_linear(sample_logits_post_pat, [NUM_SAMPLES, target_features.shape[0]])}
+        return_dict = {'logits': split_first_dim_linear(sample_logits_fr, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0), 
+                    'logits_post_pat': 0.1*split_first_dim_linear(sample_logits_post_pat, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0)}
 
         return return_dict  #, context_features  # Precomputed context features needed
 
@@ -598,107 +598,23 @@ class STRM(nn.Module):
             self.open_set_model.cuda(0)
             self.open_set_model = torch.nn.DataParallel(self.open_set_model, device_ids=[i for i in range(0, self.args["num_gpus"])])
 
+
     def set_train(self):
         return  # Nothing to do for STRM, train is called in main loop
 
-    def compute_loss(self, logits, logits_post_pat, support_labels=None, target_labels=None, batch_class_list=None, use_open_set=None):
+    def compute_additional_metrics(self, *args, **kwargs):
+        return {}
 
-        task_loss = self.loss(logits, target_labels.cuda(), logits.device) / 5
-        task_loss_post_pat = self.loss(logits_post_pat, target_labels.cuda(), logits.device) / 5
-        self.debug_data = {}
-        # "similarity_matrix": wandb.Table(columns=list(range(logits.shape[0])), data=logits.detach().cpu().numpy().tolist()),
-        #             "support_labels": wandb.Table(columns=[0], data=support_labels.detach().cpu().numpy()[..., None]), 
-        #             "target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None])}
 
-        return {"task_loss": task_loss, "task_loss_post_pat": task_loss_post_pat, "os_known_loss": None, "os_unknown_loss": None}
+    def compute_known_losses(self, logits, logits_post_pat, true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None):
 
-        # KNOWN LOSS ######################
-        if len(logits.shape) == 3:
-            logits = logits.squeeze(0)
-        if len(logits_post_pat.shape) == 3:
-            logits_post_pat = logits_post_pat.squeeze(0)
         known_indices = target_labels != -1
-        if known_indices.sum() > 0:
-            logits_k = logits[known_indices]
-            logits_post_pat_k = logits_post_pat[known_indices]
-            target_labels_k = target_labels[known_indices]
-            true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
+        task_loss = self.loss(logits[known_indices], target_labels[known_indices], logits.device) / 5
+        task_loss_post_pat = self.loss(logits_post_pat[known_indices], target_labels[known_indices], logits.device) / 5
+        self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(logits.shape[1])), data=logits.detach().cpu().numpy().tolist()),
+                           "true_target_labels": wandb.Table(columns=[0], data=true_target_labels.detach().cpu().numpy()[..., None])}
 
-            # Target logits after applying query-distance-based similarity metric on patch-level enriched features
-            true_target_labels = true_target_labels.to(logits.device)
-            task_loss = self.loss(logits_k.unsqueeze(0), true_target_labels, logits.device) / known_indices.sum()
-            task_loss_post_pat = self.loss(logits_post_pat_k.unsqueeze(0), true_target_labels, logits.device) / known_indices.sum()
-
-        else:
-            task_loss = None
-            task_loss_post_pat = None
-
-        # UNKNOWN LOSS ######################
-        if use_open_set:
-            partial_true_target_labels = torch.argsort(support_labels)[target_labels]
-            partial_true_target_labels[target_labels == -1] = -1
-            os_known_loss, os_unknown_loss = self.open_set_loss(logits, partial_true_target_labels.cuda())
-        else:
-            os_known_loss = None
-            os_unknown_loss = None
-
-        self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(logits.shape[0])), data=logits.detach().cpu().numpy().tolist()),
-                    "support_labels": wandb.Table(columns=[0], data=support_labels.detach().cpu().numpy()[..., None]), 
-                    "target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None])}
-
-        return {"task_loss": task_loss, "task_loss_post_pat": task_loss_post_pat, "os_known_loss": os_known_loss, "os_unknown_loss": os_unknown_loss}
-
-    def optimize(self, task_loss, task_loss_post_pat, os_known_loss, os_unknown_loss, optimizer=None, use_open_set=None):
-        if task_loss is not None:
-            os_known_loss = os_known_loss if os_known_loss is not None else torch.FloatTensor([0]).cuda()
-            os_unknown_loss = os_unknown_loss if os_unknown_loss is not None else torch.FloatTensor([0]).cuda()
-            all_task_loss = task_loss + 0.1*task_loss_post_pat + 0.1*(os_known_loss + os_unknown_loss)
-            optimizer.zero_grad()
-            all_task_loss.backward(retain_graph=False)
-            optimizer.step()
-        else:
-            optimizer.zero_grad()
-
-    def compute_metrics(self, logits, logits_post_pat, support_labels, target_labels, batch_class_list):
-        known_indices = target_labels != -1
-        if len(logits.shape) == 3:
-            logits = logits.squeeze(0)
-        if len(logits_post_pat.shape) == 3:
-            logits_post_pat = logits_post_pat.squeeze(0)
-        if known_indices.sum() > 0:
-            logits_k = logits[known_indices]
-            logits_post_pat_k = logits_post_pat[known_indices]
-            logits_k = logits_k + 0.1*logits_post_pat_k
-            target_labels_k = target_labels[known_indices]
-
-            # NO TARGET LABELS!
-            # ordering doesn't matter, we need to check where target labels is equal to support labels
-            # INDEED
-            # support_labels = [2, 0, 1], target_labels = [0, 2, 1] means that [[0, 1, 0], [1, 0, 0], [0, 0, 1]] is the correct matrix
-            true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
-            fs_acc = compute_accuracy(logits_k, true_target_labels)
-
-            # this is defined only when known_indices.sum() > 0
-            # OPEN SET PART: AUROC
-            target_os_matrix = (torch.zeros_like(logits).cuda()+1)/2
-            all_target_labels = torch.argsort(support_labels)[target_labels]
-            all_target_labels[target_labels == -1] = -1
-            for i, elem in enumerate(all_target_labels):
-                if elem != -1:
-                    target_os_matrix[i, elem] = 1
-            open_set_scores = logits.amax(dim=1).detach().cpu().numpy()
-            open_set_targets = target_os_matrix.amax(dim=1).detach().cpu().numpy().astype(int)
-            if open_set_targets.sum() > 0 and open_set_targets.sum() < len(open_set_targets):
-                os_auroc = roc_auc_score(open_set_targets, open_set_scores)
-            else:
-                os_auroc = None
-            similarity_matrix = logits.mean()
-        else:
-            fs_acc = None
-            os_auroc = None
-            similarity_matrix = None
-
-        return {"fs_acc": fs_acc, "os_auroc": os_auroc, "similarity_matrix": similarity_matrix}
+        return {"task_loss": task_loss, "task_loss_post_pat": task_loss_post_pat}
 
     def get_debug_data(self):
         return self.debug_data

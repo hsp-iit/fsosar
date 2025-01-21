@@ -1,27 +1,31 @@
+import argparse
 from safsar import SAFSAR
 from videoloader import VideoDataset
 import torch
 import wandb
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from tqdm import tqdm
 import os
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, DistributedSampler
 from datetime import datetime
 import random
 import importlib
 from torch.optim.lr_scheduler import MultiStepLR
-from utils import AverageMeter, setup, load_configs, DataArgs
+from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_auroc
 import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
-data_name = "SSv2"
-model_name = "STRM"
+def parse_args():
+    parser = argparse.ArgumentParser(description="Training script")
+    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
+    parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMBD51", "UCF101", "NTURGBD120", "Diving44"], help='Data name')
+    parser.add_argument('--os_loss', type=str, required=True, choices=["None", "PEELER", "RfdNET"], help='Open set loss')
+    return parser.parse_args()
 
 
-def main(rank, world_size):
+def main(rank, world_size, model_name, data_name, os_loss):
     config = load_configs(model_name, data_name)
     setup(rank, world_size, set_seeds=config["eval_only"])
 
@@ -64,19 +68,18 @@ def main(rank, world_size):
         wandb.init(project="fsosar", config=config)
         wandb.watch(model, log="all")
 
-    # Define optimizer
+    # Define optimizer and scheduler depending on the model
     if model_name == "SAFSAR":
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        scheduler = None
     elif model_name == "STRM":
         optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+        scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
     else:
         raise Exception("Wrong model name")
 
-    # Define scheduler
-    if model_name == "STRM":
-        scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
-    else:
-        scheduler = None
+    # Define open-set loss
+    os_loss_function = OpenSetLoss(os_loss)
 
     # Loop variables
     train_meter = AverageMeter("train/")
@@ -89,42 +92,64 @@ def main(rank, world_size):
     training = True
 
     while True:
-        # print("Going with dataset.train = ", dataloader.dataset.train)
-        # print("dataloader has ", len(dataloader))
+        assert dataloader.dataset.train == training
         for elem in dataloader:
             # Data preparation
-            support_set = elem["support_set"].squeeze(0)
-            target_set = elem["target_set"].squeeze(0)
-            target_labels = elem["target_labels"].squeeze(0).long()
-            support_labels = elem['support_labels'].squeeze(0).long()
-            batch_class_list = elem['batch_class_list'].squeeze(0).long()
+            support_set = elem["support_set"].squeeze(0).cuda()
+            target_set = elem["target_set"].squeeze(0).cuda()
+            target_labels = elem["target_labels"].squeeze(0).long().cuda()
+            support_labels = elem['support_labels'].squeeze(0).long().cuda()
+            batch_class_list = elem['batch_class_list'].squeeze(0).long().cuda()
             # real_target_labels = elem["real_target_labels"].squeeze(0).long()
-            unknown_set = elem["unknown_set"].squeeze(0)
-            unknown_labels = elem["unknown_labels"].squeeze(0).long()
+            unknown_set = elem["unknown_set"].squeeze(0).cuda()
+            unknown_labels = elem["unknown_labels"].squeeze(0).long().cuda()
 
             # Put together known and unknown
-            if config["open_set"] or (not training and not config["open_set"]):
-                all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], config["img_size"], 3, config["img_size"])
-                all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
+            if os_loss != "None" or (not training and os_loss == "None"):  # at test time, always use unknown set
+                img_shape = target_set.shape[-3:]
+                all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
+                all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1).cuda()), 0)
                 t = list(zip(all_images, all_labels))
                 random.shuffle(t)
                 all_images, all_labels = zip(*t)
                 # Get only first 5 elements for memory constraints
                 all_images = torch.stack(all_images[:5])
-                all_images = all_images.reshape(-1, config["seq_len"], config["img_size"], 3, config["img_size"])
+                all_images = all_images.reshape(-1, config["seq_len"], *img_shape)
                 all_labels = torch.stack(all_labels[:5])
             else:
                 all_images = target_set
                 all_labels = target_labels
 
             # Forward passs
+            similarity_matrix = None  # Suppress warnings
             logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list)
+            if 'logits' in logits:
+                similarity_matrix = logits['logits']
+            elif 'similarity_matrix' in logits:
+                similarity_matrix = logits['similarity_matrix']
+            # TODO STRM have 2 similarity matrices...
+            # Check for NaN values
+            print(similarity_matrix.mean())
+            if torch.isnan(similarity_matrix).any() or torch.isinf(similarity_matrix).any():
+                print("Found Nan or INF in output data, skipping batch")
+                continue
 
-            # Compute known and unknown losses
-            losses = model.module.compute_loss(**logits, support_labels=support_labels,
-                                                  target_labels=all_labels,
-                                                  batch_class_list=batch_class_list,
-                                                  use_open_set=config["open_set"])  # Added as flag
+            # Compute losses
+            # known
+            known_indices = all_labels != -1
+            if known_indices.sum() > 0:
+                unknown_indices = all_labels == -1
+                true_target_labels = torch.argsort(support_labels)[target_labels]
+                true_target_labels[unknown_indices] = -1
+                known_losses = model.module.compute_known_losses(**logits, true_target_labels=true_target_labels,
+                                                                        target_labels=all_labels,
+                                                                        support_labels=support_labels,
+                                                                        batch_class_list=batch_class_list)
+                # unknown
+                if os_loss != "None":
+                    unknown_losses = os_loss_function(similarity_matrix, all_labels)
+                else:
+                    unknown_losses = {}
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
@@ -137,17 +162,22 @@ def main(rank, world_size):
 
             # Optimization
             if training:
-                model.module.optimize(**losses, optimizer=optimizer, use_open_set=config["open_set"])
+                known_losses.update(unknown_losses)
+                all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
+                all_loss.backward()
+                optimizer.step()
                 if scheduler:
                     scheduler.step()
 
-
             # Compute metrics
-            metrics = model.module.compute_metrics(**logits, support_labels=support_labels,
-                                                      target_labels=all_labels,
-                                                      batch_class_list=batch_class_list)
+            metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], true_target_labels[known_indices]),
+                       "os_auroc": compute_auroc(similarity_matrix, true_target_labels)}
 
-            average_meter.update({**losses, **metrics})
+            additional_metrics = model.module.compute_additional_metrics(**logits, support_labels=support_labels,
+                                                                                   target_labels=all_labels,
+                                                                                   batch_class_list=batch_class_list)
+            metrics.update(additional_metrics)
+            average_meter.update({**known_losses, **metrics})
         
             # Training logging
             if step % log_train_after_steps == 0 and step > 0 and training:
@@ -155,7 +185,6 @@ def main(rank, world_size):
                 train_results.update(model.module.get_debug_data())
                 if log_wandb and rank==0:
                     wandb.log(train_results)
-
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
@@ -212,5 +241,9 @@ def main(rank, world_size):
 
 
 if __name__ == "__main__":
+    args = parse_args()
+    model_name = args.model
+    data_name = args.data
+    os_loss = args.os_loss
     world_size = torch.cuda.device_count()
-    torch.multiprocessing.spawn(main, args=(world_size,), nprocs=world_size, join=True)
+    torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)

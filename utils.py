@@ -4,12 +4,25 @@ import os
 import torch.distributed as dist
 import random
 import numpy as np
+from sklearn.metrics import roc_auc_score
+
 
 class OpenSetLoss(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, os_loss):
         super(OpenSetLoss, self).__init__()
+        self.os_losses = {"PEELER": self.peeler,
+                          "RfdNET": self.rfdnet,
+                          "None": self.none}
+        self.os_loss = self.os_losses[os_loss]
 
-    def forward(self, logits, targets):
+    def none(self, logits, targets):
+        return {"known_loss": torch.FloatTensor([0]).cuda(), 
+                "unknown_loss": torch.FloatTensor([0]).cuda()}
+
+    def rfdnet(self, logits, targets):
+        raise Exception("To implement")
+
+    def peeler(self, logits, targets):
         if len(logits.shape) > 2:
             logits = logits.squeeze(0)
 
@@ -30,12 +43,11 @@ class OpenSetLoss(torch.nn.Module):
         else:
             unknown_loss = None
         
-        return known_loss, unknown_loss
+        return {"known_loss": known_loss, "unknown_loss": unknown_loss}
 
-def compute_accuracy(logits, labels):
-    _, preds = torch.max(logits, 1)
-    correct = (preds == labels).sum().item()
-    return correct / labels.size(0)
+    def forward(self, logits, targets):
+        return self.os_loss(logits, targets)
+
 
 class AverageMeter:
     def __init__(self, prefix=""):
@@ -68,6 +80,12 @@ class AverageMeter:
         return averaged_values
 
 
+def compute_accuracy(logits, labels):
+    _, preds = torch.max(logits, 1)
+    correct = (preds == labels).sum().item()
+    return correct / labels.size(0)
+
+
 def setup(rank, world_size, set_seeds):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
@@ -89,13 +107,17 @@ def setup(rank, world_size, set_seeds):
 
 def load_configs(model_name, data_name):
     local_or_server = "server" if "iit.local" in os.getcwd() else "local"
-    model_config_path = f"configs/{model_name}/{local_or_server}_config.json"
-    data_config_path = f"configs/{data_name}/{local_or_server}_config.json"
+    model_config_path = f"configs/{model_name}.json"
+    data_config_path = f"configs/{data_name}.json"
+    train_config_path = f"configs/{local_or_server}_config.json"
     with open(model_config_path, 'r') as f:
         model_config = json.load(f)
     with open(data_config_path, 'r') as f:
         data_config = json.load(f)
+    with open(train_config_path, 'r') as f:
+        train_config = json.load(f)
     model_config.update(data_config)
+    model_config.update(train_config)
     return model_config
 
 
@@ -122,3 +144,19 @@ def split_first_dim_linear(x, first_two_dims):
     if len(x_shape) > 1:
         new_shape += [x_shape[-1]]
     return x.view(new_shape)
+
+
+def compute_auroc(similarity_matrix, true_target_labels):
+    # OPEN SET PART: AUROC
+    target_os_matrix = (torch.zeros_like(similarity_matrix).cuda()+1)/2
+    for i, elem in enumerate(true_target_labels):
+        if elem != -1:
+            target_os_matrix[i, elem] = 1
+    open_set_scores = similarity_matrix.amax(dim=1).detach().cpu().numpy()
+    open_set_targets = target_os_matrix.amax(dim=1).detach().cpu().numpy().astype(int)
+    # AUROC is defined only if there are both positive and negative samples
+    if open_set_targets.sum() > 0 and open_set_targets.sum() < len(open_set_targets):
+        os_auroc = roc_auc_score(open_set_targets, open_set_scores)
+    else:
+        os_auroc = None
+    return os_auroc

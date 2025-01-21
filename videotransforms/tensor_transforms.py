@@ -1,5 +1,5 @@
 import random
-
+import torch
 from videotransforms.utils import functional as F
 
 
@@ -15,7 +15,7 @@ class Normalize(object):
     """
 
     def __init__(self, mean, std):
-        self.mean = mean
+        self.mean = torch.tensor(mean)
         self.std = std
 
     def __call__(self, tensor):

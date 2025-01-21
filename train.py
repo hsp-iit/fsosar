@@ -106,16 +106,19 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Put together known and unknown
             if os_loss != "None" or (not training and os_loss == "None"):  # at test time, always use unknown set
-                img_shape = target_set.shape[-3:]
-                all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
-                all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1).cuda()), 0)
-                t = list(zip(all_images, all_labels))
-                random.shuffle(t)
-                all_images, all_labels = zip(*t)
-                # Get only first 5 elements for memory constraints
-                all_images = torch.stack(all_images[:5])
-                all_images = all_images.reshape(-1, config["seq_len"], *img_shape)
-                all_labels = torch.stack(all_labels[:5])
+                while True:  # Ensure that there is at least one unknown class
+                    img_shape = target_set.shape[-3:]
+                    all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
+                    all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1).cuda()), 0)
+                    t = list(zip(all_images, all_labels))
+                    random.shuffle(t)
+                    all_images, all_labels = zip(*t)
+                    # Get only first 5 elements for memory constraints
+                    all_images = torch.stack(all_images[:5])
+                    all_images = all_images.reshape(-1, config["seq_len"], *img_shape)
+                    all_labels = torch.stack(all_labels[:5])
+                    if (all_labels == -1).sum() > 0 and (all_labels != -1).sum() > 0: 
+                        break
             else:
                 all_images = target_set
                 all_labels = target_labels
@@ -127,18 +130,15 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 similarity_matrix = logits['logits']
             elif 'similarity_matrix' in logits:
                 similarity_matrix = logits['similarity_matrix']
-            # TODO STRM have 2 similarity matrices...
-            # Check for NaN values
-            if torch.isnan(similarity_matrix).any() or torch.isinf(similarity_matrix).any():
-                print("Found Nan or INF in output data, skipping batch")
-                continue
+            # TODO STRM have 2 similarity matrices, remember to use both for open set loss
 
             # Compute losses
+            # TODO strm uses target_labels oreded by support_labels, while safsar uses the true target labels
             # known
             known_indices = all_labels != -1
             if known_indices.sum() > 0:
                 unknown_indices = all_labels == -1
-                true_target_labels = torch.argsort(support_labels)[target_labels]
+                true_target_labels = torch.argsort(support_labels)[all_labels]
                 true_target_labels[unknown_indices] = -1
                 known_losses = model.module.compute_known_losses(**logits, true_target_labels=true_target_labels,
                                                                         target_labels=all_labels,

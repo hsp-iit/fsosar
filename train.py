@@ -163,6 +163,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             if training:
                 known_losses.update(unknown_losses)
                 all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
+                optimizer.zero_grad()
                 all_loss.backward()
                 optimizer.step()
                 if scheduler:

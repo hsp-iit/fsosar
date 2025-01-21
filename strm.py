@@ -609,8 +609,9 @@ class STRM(nn.Module):
     def compute_known_losses(self, logits, logits_post_pat, true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None):
 
         known_indices = target_labels != -1
-        task_loss = self.loss(logits[known_indices], target_labels[known_indices], logits.device) / 5
-        task_loss_post_pat = self.loss(logits_post_pat[known_indices], target_labels[known_indices], logits.device) / 5
+        task_loss = self.loss(logits[known_indices], target_labels[known_indices], logits.device) / known_indices.sum()
+        task_loss_post_pat = self.loss(logits_post_pat[known_indices], target_labels[known_indices], logits.device) / known_indices.sum()
+        task_loss_post_pat = task_loss_post_pat*0.1
         self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(logits.shape[1])), data=logits.detach().cpu().numpy().tolist()),
                            "true_target_labels": wandb.Table(columns=[0], data=true_target_labels.detach().cpu().numpy()[..., None])}
 

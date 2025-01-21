@@ -129,7 +129,6 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 similarity_matrix = logits['similarity_matrix']
             # TODO STRM have 2 similarity matrices...
             # Check for NaN values
-            print(similarity_matrix.mean())
             if torch.isnan(similarity_matrix).any() or torch.isinf(similarity_matrix).any():
                 print("Found Nan or INF in output data, skipping batch")
                 continue
@@ -170,8 +169,11 @@ def main(rank, world_size, model_name, data_name, os_loss):
                     scheduler.step()
 
             # Compute metrics
-            metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], true_target_labels[known_indices]),
-                       "os_auroc": compute_auroc(similarity_matrix, true_target_labels)}
+            if known_indices.sum() > 0:
+                metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], true_target_labels[known_indices]),
+                        "os_auroc": compute_auroc(similarity_matrix, true_target_labels)}
+            else:
+                metrics = {"fs_acc": None, "os_auroc": None}
 
             additional_metrics = model.module.compute_additional_metrics(**logits, support_labels=support_labels,
                                                                                    target_labels=all_labels,

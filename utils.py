@@ -107,6 +107,10 @@ def setup(rank, world_size, set_seeds):
 
 def load_configs(model_name, data_name):
     local_or_server = "server" if "iit.local" in os.getcwd() else "local"
+    if local_or_server == "local":
+        datasets_path = "/home/steb6/datasets"
+    else:
+        datasets_path = "/home/sberti_datasets"
     model_config_path = f"configs/{model_name}.json"
     data_config_path = f"configs/{data_name}.json"
     train_config_path = f"configs/{local_or_server}_config.json"
@@ -114,6 +118,7 @@ def load_configs(model_name, data_name):
         model_config = json.load(f)
     with open(data_config_path, 'r') as f:
         data_config = json.load(f)
+    data_config["path"] = f"{datasets_path}/{data_config['path']}"
     with open(train_config_path, 'r') as f:
         train_config = json.load(f)
     model_config.update(data_config)

@@ -1,5 +1,5 @@
 {
-    "path": "/home/steb6/datasets/SSv2/images",
+    "path": "SSv2/images",
     "traintestlist": "splits/ssv2_OTAM",
     "seq_len": 8,
     "img_size": 224,

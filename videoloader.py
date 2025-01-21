@@ -113,6 +113,7 @@ class VideoDataset(torch.utils.data.Dataset):
     """Loads all videos into RAM from an uncompressed zip. Necessary as the filesystem has a large block size, which is unsuitable for lots of images. """
     """Contains some legacy code for loading images directly, but this has not been used/tested for a while so might not work with the current codebase. """
     def read_dir(self):
+        print(f"Loading data from {self.data_dir}")
         # load zipfile into memory
         if self.data_dir.endswith('.zip'):
             self.zip = True

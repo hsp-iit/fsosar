@@ -171,7 +171,11 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Compute metrics
             if known_indices.sum() > 0:
-                metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], true_target_labels[known_indices]),
+                # NOTE: strm sorts the support classes, while safsar does not
+                # So for safsar we need to use true_target_labels, while for
+                # STRM we need to use plain target labels
+                acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
+                metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], acc_target[known_indices]),
                         "os_auroc": compute_auroc(similarity_matrix, true_target_labels)}
             else:
                 metrics = {"fs_acc": None, "os_auroc": None}

@@ -190,8 +190,11 @@ def main(rank, world_size, model_name, data_name, os_loss):
             if step % log_train_after_steps == 0 and step > 0 and training:
                 train_results = average_meter.average()
                 train_results.update(model.module.get_debug_data())
-                if log_wandb and rank==0:
-                    wandb.log(train_results)
+                if rank == 0:
+                    if log_wandb:
+                        wandb.log(train_results)
+                    else:
+                        print(train_results)
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):

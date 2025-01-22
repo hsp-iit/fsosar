@@ -177,7 +177,7 @@ class VideoDataset(torch.utils.data.Dataset):
                 video_folders = os.listdir(os.path.join(self.data_dir, class_folder))
                 video_folders.sort()
                 if self.debug_loader:
-                    video_folders = video_folders[0:1]
+                    video_folders = video_folders[0:2]
                 for video_folder in video_folders:
                     c = self.get_train_or_test_db(video_folder)
                     if c == None:

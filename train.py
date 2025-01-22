@@ -32,7 +32,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     # Create directory for saving checkpoints
     if rank == 0:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        checkpoint_path = f"{model_name}_{data_name}_{timestamp}"
+        checkpoint_path = f"{model_name}_{os_loss}_{data_name}_{timestamp}"
         checkpoint_dir = os.path.join("logs", checkpoint_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -65,7 +65,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
     # Initialize wandb
     if log_wandb and rank==0:
-        wandb.init(project="fsosar", config=config)
+        wandb.init(project="fsosar", config=config, name=f"{config['host']}_{checkpoint_path}")
         wandb.watch(model, log="all")
 
     # Define optimizer and scheduler depending on the model
@@ -148,7 +148,10 @@ def main(rank, world_size, model_name, data_name, os_loss):
                                                                         batch_class_list=batch_class_list)
                 # unknown
                 if os_loss != "None":
-                    unknown_losses = os_loss_function(similarity_matrix, all_labels)
+                    # SAFSAR WANTS true_target_labels
+                    # STRM wants all_labels
+                    acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
+                    unknown_losses = os_loss_function(similarity_matrix, acc_target)
                 else:
                     unknown_losses = {}
             

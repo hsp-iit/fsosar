@@ -110,12 +110,15 @@ def load_configs(model_name, data_name):
     if "steb6" in cwd:
         local_or_server = "local"
         datasets_path = "/home/steb6/datasets"
+        host = "local"
     elif "iit.local" in cwd:
         local_or_server = "server"
         datasets_path = "/home/sberti_datasets"
+        host = "gnode04"
     elif "sberti" in cwd:
         local_or_server = "server"
         datasets_path = "/work/sberti"
+        host = "franklin"
         
     model_config_path = f"configs/{model_name}.json"
     data_config_path = f"configs/{data_name}.json"
@@ -129,6 +132,7 @@ def load_configs(model_name, data_name):
         train_config = json.load(f)
     model_config.update(data_config)
     model_config.update(train_config)
+    model_config["host"] = host
     return model_config
 
 

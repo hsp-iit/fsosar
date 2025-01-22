@@ -5,6 +5,7 @@
 #PBS -q gpu
 #PBS -j oe
 
+/applications/sw/miniforge/condabin/conda init bash
 source /home/sberti/.bashrc
 conda activate fsosar
 cd /home/sberti/fsosar

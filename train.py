@@ -65,7 +65,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
     # Initialize wandb
     if log_wandb and rank==0:
-        wandb.init(project="fsosar", config=config)
+        wandb.init(project="fsosar", config=config, name=f"{config['host']}_{checkpoint_path}")
         wandb.watch(model, log="all")
 
     # Define optimizer and scheduler depending on the model

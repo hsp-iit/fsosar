@@ -530,7 +530,7 @@ class STRM(nn.Module):
         else:
             context_features = precomputed_context_features
         # Line below added by me to make this work
-        target_images = target_images.reshape(self.args["way"]*self.args["seq_len"], 3, self.args["img_size"], self.args["img_size"])
+        target_images = target_images.reshape(-1, 3, self.args["img_size"], self.args["img_size"])
         target_features = self.resnet(target_images) # 160 x 2048 x 7 x 7
         target_features = self.adap_max(target_features) # 160 x 2048 x 4 x 4
         target_features = target_features.reshape(-1, self.args["trans_linear_in_dim"], self.num_patches) # 160 x 2048 x 16       

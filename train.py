@@ -90,6 +90,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
     step = 0
     total_step = 0
     training = True
+    optimize_every = config["optimize_every"]
+    maximum_queries = config["maximum_queries"]
 
     while True:
         assert dataloader.dataset.train == training
@@ -114,9 +116,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
                     random.shuffle(t)
                     all_images, all_labels = zip(*t)
                     # Get only first 5 elements for memory constraints
-                    all_images = torch.stack(all_images[:5])
+                    all_images = torch.stack(all_images[:maximum_queries])
                     all_images = all_images.reshape(-1, config["seq_len"], *img_shape)
-                    all_labels = torch.stack(all_labels[:5])
+                    all_labels = torch.stack(all_labels[:maximum_queries])
                     if (all_labels == -1).sum() > 0 and (all_labels != -1).sum() > 0: 
                         break
             else:
@@ -160,7 +162,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                                                   target_set=all_images)
 
             # Optimization
-            if training:
+            if training and step > 0 and step % optimize_every == 0:
                 known_losses.update(unknown_losses)
                 all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
                 optimizer.zero_grad()

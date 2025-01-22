@@ -146,7 +146,10 @@ def main(rank, world_size, model_name, data_name, os_loss):
                                                                         batch_class_list=batch_class_list)
                 # unknown
                 if os_loss != "None":
-                    unknown_losses = os_loss_function(similarity_matrix, all_labels)
+                    # SAFSAR WANTS true_target_labels
+                    # STRM wants all_labels
+                    acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
+                    unknown_losses = os_loss_function(similarity_matrix, acc_target)
                 else:
                     unknown_losses = {}
             

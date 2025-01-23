@@ -1,7 +1,7 @@
 #/bin/bash
-#PBS -l select=1:ncpus=10:ngpus=1
+#PBS -l select=1:ncpus=10:ngpus=4
 #PBS -l walltime=24:00:00
-#PBS -N fsosar
+#PBS -N safsar
 #PBS -q gpu
 #PBS -j oe
 

@@ -6,7 +6,7 @@
     "way": 5,
     "shot": 1,
     "split": 7,
-    "debug_loader": false,
+    "debug_loader": true,
     "query_per_class_test": 1,
     "n_train_classes": 64,
     "num_workers": 1

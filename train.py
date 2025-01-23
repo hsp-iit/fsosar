@@ -107,9 +107,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
             unknown_labels = elem["unknown_labels"].squeeze(0).long()
 
             # Put together known and unknown
+            img_shape = target_set.shape[-3:]
             if os_loss != "None" or (not training and os_loss == "None"):  # at test time, always use unknown set
                 while True:  # Ensure that there is at least one unknown class
-                    img_shape = target_set.shape[-3:]
                     all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
                     all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
                     t = list(zip(all_images, all_labels))
@@ -122,7 +122,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                     if (all_labels == -1).sum() > 0 and (all_labels != -1).sum() > 0: 
                         break
             else:
-                all_images = target_set[:maximum_queries]
+                all_images = target_set.reshape(-1, config["seq_len"], *img_shape)[:maximum_queries]
                 all_labels = target_labels[:maximum_queries]
             all_images = all_images.cuda()
             all_labels = all_labels.cuda()

@@ -98,8 +98,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
         for elem in dataloader:
             # Data preparation
             support_set = elem["support_set"].squeeze(0).cuda()
-            target_set = elem["target_set"].squeeze(0).cuda()
-            target_labels = elem["target_labels"].squeeze(0).long().cuda()
+            target_set = elem["target_set"].squeeze(0)  # .cuda()
+            target_labels = elem["target_labels"].squeeze(0).long()  # .cuda()
             support_labels = elem['support_labels'].squeeze(0).long().cuda()
             batch_class_list = elem['batch_class_list'].squeeze(0).long().cuda()
             # real_target_labels = elem["real_target_labels"].squeeze(0).long()
@@ -122,10 +122,13 @@ def main(rank, world_size, model_name, data_name, os_loss):
                     if (all_labels == -1).sum() > 0 and (all_labels != -1).sum() > 0: 
                         break
             else:
-                all_images = target_set
-                all_labels = target_labels
+                all_images = target_set[:maximum_queries]
+                all_labels = target_labels[:maximum_queries]
+            all_images = all_images.cuda()
+            all_labels = all_labels.cuda()
 
             # Forward passs
+            print(f"FEEDIG MODEL WITH {len(all_images)/8} queries")
             similarity_matrix = None  # Suppress warnings
             logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list)
             if 'logits' in logits:

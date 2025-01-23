@@ -95,7 +95,11 @@ class SAFSAR(nn.Module):
             support_mm_features = support_features
 
         # Generate query prototypes
-        target_set = target_set.reshape(-1, self.seq_len, 224, 3, 224)
+        if len(target_set.shape) == 4:  # n_q, seq_len, 224, 3, 224
+            n_queries = target_set.shape[0] / 8
+        elif len(target_set.shape) == 5:
+            n_queries = target_set.shape[0]
+        target_set = target_set.reshape(n_queries, self.seq_len, 224, 3, 224)
         target_set = target_set.permute(0, 1, 3, 4, 2)
         if self.seq_len == 8:
             inputs = {"pixel_values": target_set.repeat_interleave(2, dim=1).cuda()}
@@ -105,7 +109,7 @@ class SAFSAR(nn.Module):
         query_features = self.model.fc_norm(query_features)
 
         # Repeat embeddings for each query
-        support_mm_features = support_mm_features.unsqueeze(0).repeat(-1, 1, 1)
+        support_mm_features = support_mm_features.unsqueeze(0).repeat(n_queries, 1, 1)
         combined_features = torch.cat((query_features.unsqueeze(1), support_mm_features), dim=1)
         combined_features = self.task_specific_learning_module(combined_features)
         query_features_aug, support_mm_features_aug = combined_features.split([1, self.way], dim=1)

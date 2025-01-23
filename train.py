@@ -103,15 +103,15 @@ def main(rank, world_size, model_name, data_name, os_loss):
             support_labels = elem['support_labels'].squeeze(0).long().cuda()
             batch_class_list = elem['batch_class_list'].squeeze(0).long().cuda()
             # real_target_labels = elem["real_target_labels"].squeeze(0).long()
-            unknown_set = elem["unknown_set"].squeeze(0).cuda()
-            unknown_labels = elem["unknown_labels"].squeeze(0).long().cuda()
+            unknown_set = elem["unknown_set"].squeeze(0)
+            unknown_labels = elem["unknown_labels"].squeeze(0).long()
 
             # Put together known and unknown
             if os_loss != "None" or (not training and os_loss == "None"):  # at test time, always use unknown set
                 while True:  # Ensure that there is at least one unknown class
                     img_shape = target_set.shape[-3:]
                     all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
-                    all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1).cuda()), 0)
+                    all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
                     t = list(zip(all_images, all_labels))
                     random.shuffle(t)
                     all_images, all_labels = zip(*t)
@@ -128,7 +128,6 @@ def main(rank, world_size, model_name, data_name, os_loss):
             all_labels = all_labels.cuda()
 
             # Forward passs
-            print(f"FEEDIG MODEL WITH {len(all_images)/8} queries")
             similarity_matrix = None  # Suppress warnings
             logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list)
             if 'logits' in logits:

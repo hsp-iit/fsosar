@@ -96,7 +96,7 @@ class SAFSAR(nn.Module):
 
         # Generate query prototypes
         if len(target_set.shape) == 4:  # n_q, seq_len, 224, 3, 224
-            n_queries = target_set.shape[0] / 8
+            n_queries = int(target_set.shape[0] / self.seq_len)
         elif len(target_set.shape) == 5:
             n_queries = target_set.shape[0]
         target_set = target_set.reshape(n_queries, self.seq_len, 224, 3, 224)

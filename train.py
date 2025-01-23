@@ -167,7 +167,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                                                   target_set=all_images)
 
             # Optimization
-            if training and step > 0 and step % optimize_every == 0:
+            if training and step % optimize_every == 0:
                 known_losses.update(unknown_losses)
                 all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
                 optimizer.zero_grad()

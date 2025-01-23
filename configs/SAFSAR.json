@@ -13,5 +13,5 @@
     "lr": 4e-5,
     "query_per_class": 1,
     "optimize_every": 1,
-    "maximum_queries": 3
+    "maximum_queries": 5
 }

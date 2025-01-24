@@ -9,6 +9,6 @@
     "way": 5,
     "temp_set": [2],
     "query_per_class": 4,
-    "optimize_every": 16,
+    "optimize_every": 1,
     "maximum_queries": 16
 }

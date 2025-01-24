@@ -169,7 +169,7 @@ class VideoDataset(torch.utils.data.Dataset):
             c = self.get_train_or_test_db(last_video_folder)
             if c != None and len(insert_frames) >= self.seq_len:
                 c.add_vid(insert_frames, last_video_class)
-        elif not os.path.exists(os.path.join(self.annotation_path, "preloaded_splits.pkl")):
+        elif not os.path.exists(os.path.join(self.annotation_path, "preloaded_splits.pkl")) or self.debug_loader:
             class_folders = os.listdir(self.data_dir)
             class_folders.sort()
             self.class_folders = class_folders

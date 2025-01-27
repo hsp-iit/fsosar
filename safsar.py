@@ -157,7 +157,8 @@ class SAFSAR(nn.Module):
         #     l2_loss = None
 
         self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
-                           "true_target_labels": wandb.Table(columns=[0], data=true_target_labels.detach().cpu().numpy()[..., None])}
+                           "true_target_labels": wandb.Table(columns=[0], data=true_target_labels.detach().cpu().numpy()[..., None]),
+                           "similarity_matrix_mean": similarity_matrix.mean().item()}
         return {"l1_loss": l1_loss, "l2_loss": self.alpha*l2_loss}
 
     def get_debug_data(self):

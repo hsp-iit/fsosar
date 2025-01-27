@@ -10,19 +10,63 @@ from sklearn.metrics import roc_auc_score
 class OpenSetLoss(torch.nn.Module):
     def __init__(self, os_loss):
         super(OpenSetLoss, self).__init__()
-        self.os_losses = {"PEELER": self.peeler,
-                          "RfdNET": self.rfdnet,
-                          "None": self.none}
+        self.os_losses = {"softmax": self.softmax,
+                          "posunk": self.posunk,
+                          "eos": self.eos,
+                          "mos": self.mos}
         self.os_loss = self.os_losses[os_loss]
 
-    def none(self, logits, targets):
+    def softmax(self, logits, targets):
         return {"known_loss": torch.FloatTensor([0]).cuda(), 
                 "unknown_loss": torch.FloatTensor([0]).cuda()}
 
-    def rfdnet(self, logits, targets):
-        raise Exception("To implement")
+    def eos(self, logits, targets):
+        """
+        from Learning Relative Feature Displacement for Few-Shot Open-Set Recognition
+        for known queries, it uses cross-entropy loss
+        so here we define only the case for unknown queries
+        Intuitively, it pushes unknown logits to have the same values
+        """
+        if len(logits.shape) > 2:
+            logits = logits.squeeze(0)
 
-    def peeler(self, logits, targets):
+        unknown_indices = targets == -1
+        if unknown_indices.sum() > 0:
+            logits = logits[unknown_indices]
+            probs = torch.nn.softmax(logits, dim=-1)
+            unknown_loss = -torch.log(probs).mean()
+        else:
+            unknown_loss = None
+
+        return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
+
+    def mos(self, logits, targets):
+        """
+        from Learning Relative Feature Displacement for Few-Shot Open-Set Recognition
+        for known queries, it uses cross-entropy loss
+        so here we define only the case for unknown queries
+        Intuitively, it pushes unknown logits to have the same values
+        """
+        gamma = 0.5
+        delta = 2
+
+        if len(logits.shape) > 2:
+            logits = logits.squeeze(0)
+
+        unknown_indices = targets == -1
+        if unknown_indices.sum() > 0:
+            logits = logits[unknown_indices]
+            probs = torch.nn.functional.softmax(logits, dim=-1)
+            unknown_loss = -torch.log(probs).mean() + (gamma*torch.max(0, logits - delta))
+        else:
+            unknown_loss = None
+
+        return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
+
+    def posunk(self, logits, targets):
+        """
+        from Feature-semantic augmentation network for few-shot open-set recognition
+        """
         if len(logits.shape) > 2:
             logits = logits.squeeze(0)
 

@@ -21,7 +21,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
     parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMBD51", "UCF101", "NTURGBD120", "Diving44"], help='Data name')
-    parser.add_argument('--os_loss', type=str, required=True, choices=["None", "PEELER", "RfdNET"], help='Open set loss')
+    parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "posunk", "eos", "mos"], help='Open set loss')
     return parser.parse_args()
 
 

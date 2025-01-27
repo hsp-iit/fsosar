@@ -117,7 +117,7 @@ class DistanceLoss(nn.Module):
                 # Normalize features before cosine similarity
                 query_embed = query_embed / torch.norm(query_embed, dim=-1).unsqueeze(-1)
                 support_embed = support_embed / torch.norm(support_embed, dim=-1).unsqueeze(-1)
-                distmat = self.similarity_function(query_embed.unsqueeze(1), support_embed.unsqueeze(0), dim=-1)  # Shape: (1120, 140)
+                distmat = torch.mm(query_embed, support_embed.T)
                 distmat = -distmat  # Since they use a distance and we use a similarity, we need to do this
             else:
                 # Calculate p-norm distance between the query embedding and the support set embedding
@@ -248,8 +248,8 @@ class TemporalCrossTransformer(nn.Module):
                 # Normalize features before cosine similarity
                 mh_queries_vs = mh_queries_vs / torch.norm(mh_queries_vs, dim=-1).unsqueeze(-1)
                 query_prototype = query_prototype / torch.norm(query_prototype, dim=-1).unsqueeze(-1)
-                distance = self.similarity_function(mh_queries_vs.permute(0, 2, 1), query_prototype.permute(0, 2, 1)) # 20 x 28
-                distance = distance.mean(dim=1)
+                distance = torch.matmul(mh_queries_vs, query_prototype.transpose(-1, -2))
+                distance = distance.mean(dim=[-1, -2])
             else:
                 # calculate distances from queries to query-specific class prototypes
                 diff = mh_queries_vs - query_prototype # 20 x 28 x 1152
@@ -488,11 +488,13 @@ class STRM(nn.Module):
 
         self.adap_max = nn.AdaptiveMaxPool2d((4, 4))
 
+        self.use_cosine_sim = args["use_cosine_sim"]
+
         # Temporal Cross Transformer for modelling temporal relations
-        self.transformers = nn.ModuleList([TemporalCrossTransformer(args, s) for s in args["temp_set"]]) 
+        self.transformers = nn.ModuleList([TemporalCrossTransformer(args, s, use_cosine_sim=self.use_cosine_sim) for s in args["temp_set"]]) 
 
         # New-distance metric for post patch-level enriched features
-        self.new_dist_loss_post_pat = nn.ModuleList([DistanceLoss(args, s) for s in args["temp_set"]])
+        self.new_dist_loss_post_pat = nn.ModuleList([DistanceLoss(args, s, use_cosine_sim=self.use_cosine_sim) for s in args["temp_set"]])
 
         # Linear-based patch-level attention over the 16 patches
         self.attn_pat = Self_Attn_Bot(self.args["trans_linear_in_dim"], self.num_patches)

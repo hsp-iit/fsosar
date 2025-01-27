@@ -33,7 +33,7 @@ class OpenSetLoss(torch.nn.Module):
         unknown_indices = targets == -1
         if unknown_indices.sum() > 0:
             logits = logits[unknown_indices]
-            probs = torch.nn.softmax(logits, dim=-1)
+            probs = torch.nn.functional.softmax(logits, dim=-1)
             unknown_loss = -torch.log(probs).mean()
         else:
             unknown_loss = None
@@ -46,6 +46,7 @@ class OpenSetLoss(torch.nn.Module):
         for known queries, it uses cross-entropy loss
         so here we define only the case for unknown queries
         Intuitively, it pushes unknown logits to have the same values
+        # TODO add marginn to open-set loss also
         """
         gamma = 0.5
         delta = 2
@@ -57,7 +58,7 @@ class OpenSetLoss(torch.nn.Module):
         if unknown_indices.sum() > 0:
             logits = logits[unknown_indices]
             probs = torch.nn.functional.softmax(logits, dim=-1)
-            unknown_loss = -torch.log(probs).mean() + (gamma*torch.max(0, logits - delta))
+            unknown_loss = -torch.log(probs).mean() + (gamma*torch.max(torch.tensor(0), logits - delta))
         else:
             unknown_loss = None
 

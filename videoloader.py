@@ -191,8 +191,9 @@ class VideoDataset(torch.utils.data.Dataset):
                     paths.sort(key=lambda x: int(x.split('/')[-1].split('.')[0].replace("frame_", "")))
                     class_id =  class_folders.index(class_folder)
                     c.add_vid(paths, class_id)
-            with open(os.path.join(self.annotation_path, "preloaded_splits.pkl"), 'wb') as f:
-                pickle.dump((self.train_split, self.test_split), f)
+            if not self.debug_loader:  # save preloaded splits only if not debug
+                with open(os.path.join(self.annotation_path, "preloaded_splits.pkl"), 'wb') as f:
+                    pickle.dump((self.train_split, self.test_split), f)
         else:
             class_folders = os.listdir(self.data_dir)
             class_folders.sort()

@@ -6,10 +6,9 @@
     "lr": 0.001,
     "method": "resnet50", 
     "trans_dropout": 0.1,
-    "way": 5,
     "temp_set": [2],
-    "query_per_class": 1,
-    "optimize_every": 1,
+    "query_per_class": 4,
+    "optimize_every": 16,
     "maximum_queries": 16,
-    "use_cosine_sim": true
+    "use_cosine_sim": false
 }

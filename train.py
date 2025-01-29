@@ -168,11 +168,12 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Optimization
             known_losses.update(unknown_losses)
-            all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
-            all_loss.backward()
-            if training and step % optimize_every == 0:
-                optimizer.step()
-                optimizer.zero_grad()
+            if training:
+                all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
+                all_loss.backward()
+                if step % optimize_every == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
             if scheduler:
                 scheduler.step()
 
@@ -181,7 +182,13 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 # NOTE: strm sorts the support classes, while safsar does not
                 # So for safsar we need to use true_target_labels, while for
                 # STRM we need to use plain target labels
-                acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
+                # acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
+                if model_name == "SAFSAR":
+                    similarity_matrix = (similarity_matrix+1)/2
+                    acc_target = true_target_labels  # ordered permuted
+                else:
+                    similarity_matrix = torch.nn.functional.softmax(similarity_matrix, dim=-1)
+                    acc_target = all_labels  # not ordered, support ordered in model
                 metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], acc_target[known_indices]),
                         "os_auroc": compute_auroc(similarity_matrix, acc_target)}
             else:

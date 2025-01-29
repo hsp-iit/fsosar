@@ -34,6 +34,7 @@ class OpenSetLoss(torch.nn.Module):
         if unknown_indices.sum() > 0:
             logits = logits[unknown_indices]
             probs = torch.nn.functional.softmax(logits, dim=-1)
+            probs = probs + 1e-6  # avoid log(0)
             unknown_loss = -torch.log(probs).mean()
         else:
             unknown_loss = None
@@ -207,8 +208,10 @@ def split_first_dim_linear(x, first_two_dims):
 
 
 def compute_auroc(similarity_matrix, true_target_labels):
-    # OPEN SET PART: AUROC
-    target_os_matrix = (torch.zeros_like(similarity_matrix).cuda()+1)/2
+    """
+    similarity_matrix must be defined between 0 and 1
+    """
+    target_os_matrix = torch.zeros_like(similarity_matrix).cuda()
     for i, elem in enumerate(true_target_labels):
         if elem != -1:
             target_os_matrix[i, elem] = 1

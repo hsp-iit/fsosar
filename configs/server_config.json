@@ -1,6 +1,5 @@
 {
     "log_train_after_steps": 10,
-    "eval_after_steps": 2000,
     "log_wandb": true,
     "eval_only": false,
     "n_eval_steps": 2000,

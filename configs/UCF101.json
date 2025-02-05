@@ -1,0 +1,13 @@
+{
+    "path": "ucf101/images",
+    "traintestlist": "splits/ucf_ARN",
+    "seq_len": 8,
+    "img_size": 224,
+    "way": 5,
+    "shot": 5,
+    "split": 3,
+    "debug_loader": false,
+    "query_per_class_test": 1,
+    "n_train_classes": 101,
+    "num_workers": 4
+}

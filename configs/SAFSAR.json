@@ -1,7 +1,7 @@
 
 {
     "processor_name": "MCG-NJU/videomae-base-finetuned-kinetics",
-    "model_name": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "mm_model_name": "MCG-NJU/videomae-base-finetuned-kinetics",
     "hidden_size": 768,
     "num_layers_mm": 2,
     "num_heads": 8,

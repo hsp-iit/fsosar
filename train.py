@@ -12,8 +12,9 @@ from datetime import datetime
 import random
 import importlib
 from torch.optim.lr_scheduler import MultiStepLR
-from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_auroc
+from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_oscr
 import numpy as np
+from sklearn.metrics import roc_auc_score, average_precision_score
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
@@ -27,6 +28,9 @@ def parse_args():
 
 def main(rank, world_size, model_name, data_name, os_loss):
     config = load_configs(model_name, data_name)
+    config["model_name"] = model_name
+    config["data_name"] = data_name
+    config["os_loss"] = os_loss
     setup(rank, world_size, set_seeds=config["eval_only"])
 
     # Create directory for saving checkpoints
@@ -185,15 +189,29 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 # NOTE: strm sorts the support classes, while safsar does not
                 # So for safsar we need to use true_target_labels, while for
                 # STRM we need to use plain target labels
-                # acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
-                if model_name == "SAFSAR":
-                    similarity_matrix = (similarity_matrix+1)/2
-                    acc_target = true_target_labels  # ordered permuted
-                else:
-                    similarity_matrix = torch.nn.functional.softmax(similarity_matrix, dim=-1)
-                    acc_target = all_labels  # not ordered, support ordered in model
-                metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], acc_target[known_indices]),
-                        "os_auroc": compute_auroc(similarity_matrix, acc_target)}
+                # Here we define scaled similarity matrix, that are score normalized in [0, 1] depending on method
+                scaled_similarity_matrix = None
+                if model_name == "STRM":
+                    scaled_similarity_matrix = torch.exp(similarity_matrix)
+                elif model_name == "SAFSAR":
+                    scaled_similarity_matrix = (similarity_matrix + 1)/2
+                mssm = scaled_similarity_matrix.amax(dim=-1).detach().cpu().numpy()
+                mss = torch.nn.functional.softmax(similarity_matrix, dim=-1).amax(dim=-1).detach().cpu().numpy()
+                mls = similarity_matrix.amax(dim=-1).detach().cpu().numpy()
+                acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
+                os_target = acc_target!=-1
+                os_target = os_target.detach().cpu().numpy()
+                metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices],
+                                                      acc_target[known_indices]),
+                           "os_auroc_mss": roc_auc_score(os_target, mss),
+                           "os_auroc_mls": roc_auc_score(os_target, mls),
+                           "os_auroc_mls_scaled": roc_auc_score(os_target, mssm),
+                           "os_aupr_mss": average_precision_score(os_target, mss),
+                           "os_aupr_mls": average_precision_score(os_target, mls),
+                           "os_aupr_mls_scaled": average_precision_score(os_target, mssm),
+                           "os_oscr_mss": compute_oscr(os_target, torch.nn.functional.softmax(similarity_matrix, dim=-1)),
+                           "os_oscr_mls": compute_oscr(os_target, similarity_matrix),
+                           "os_oscr_mls_scaled": compute_oscr(os_target, scaled_similarity_matrix)}
             else:
                 metrics = {"fs_acc": None, "os_auroc": None}
 
@@ -249,14 +267,17 @@ def main(rank, world_size, model_name, data_name, os_loss):
                         wandb.log(test_results)
                     # Save the model with test accuracy as the name
                     acc_vip = test_results["test/fs_acc"]
-                    auroc_vip = test_results["test/os_auroc"]
+                    auroc_vip = test_results["test/os_auroc_mss"]
                     model_path = os.path.join(checkpoint_dir, f"STEPS_{total_step}_ACC_{acc_vip:.4f}_AUROC_{auroc_vip:.4f}.pt")
                     torch.save(model.state_dict(), model_path)
                 average_meter = train_meter
                 training = True
                 torch.set_grad_enabled(True)
                 step = 0
-                break  # Break out of the for loop to restart with the new dataloader
+                if config["exit_after_eval"]:
+                    exit(0)
+                else:
+                    break  # Break out of the for loop to restart with the new dataloader
 
             if rank == 0:
                 progress_bar.update(1)

@@ -283,3 +283,48 @@ def compute_auroc(similarity_matrix, true_target_labels):
     else:
         os_auroc = None
     return os_auroc
+
+def compute_oscr(targets, logits):
+    """
+    Computes the Open Set Classification Rate (OSCR) from logits and targets.
+    
+    Args:
+        logits (torch.Tensor): Tensor of shape (n_queries, n_classes) containing logits for each query and class.
+        targets (torch.Tensor): Vector of size (n_queries), where each element is the true label (0 to n_classes-1 for known classes) or -1 for unknown labels.
+    
+    Returns:
+        float: OSCR score.
+    """
+    # Get the predicted class for each query (highest logit value)
+    _, predicted_classes = torch.max(logits, dim=1)
+    
+    # Initialize counters for TP, FP, FN, TN
+    tp, fp, fn, tn = 0, 0, 0, 0
+    
+    # Loop through all queries and compare predictions to targets
+    for i in range(len(targets)):
+        true_label = targets[i]
+        predicted_label = predicted_classes[i]
+        
+        # Case 1: Known class (0 to n_classes-1)
+        if true_label != -1:
+            if predicted_label == true_label:
+                tp += 1  # True Positive
+            else:
+                fn += 1  # False Negative
+        
+        # Case 2: Unknown class (-1)
+        else:
+            if predicted_label == true_label:
+                tn += 1  # True Negative (correctly rejected)
+            else:
+                fp += 1  # False Positive (incorrectly accepted as known)
+
+    # Calculate True Positive Rate (TPR) and False Positive Rate (FPR)
+    tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+
+    # Calculate OSCR (Open Set Classification Rate)
+    oscr = tpr / (tpr + fpr) if (tpr + fpr) > 0 else 0
+    
+    return oscr

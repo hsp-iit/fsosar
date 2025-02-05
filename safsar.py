@@ -11,7 +11,7 @@ class SAFSAR(nn.Module):
     def __init__(self, config):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(config["processor_name"])
-        self.model = AutoModelForVideoClassification.from_pretrained(config["model_name"], output_hidden_states=True)
+        self.model = AutoModelForVideoClassification.from_pretrained(config["mm_model_name"], output_hidden_states=True)
         self.way = config["way"]
         self.shot = config["shot"]
         self.seq_len = config["seq_len"]

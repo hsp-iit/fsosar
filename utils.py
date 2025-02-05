@@ -4,36 +4,94 @@ import os
 import torch.distributed as dist
 import random
 import numpy as np
+import socket
 from sklearn.metrics import roc_auc_score
+
+# a simple MLP for binary classification with 2 layers
+class MLP(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(MLP, self).__init__()
+        self.dim_reduction = torch.nn.Linear(input_dim, 128)
+        self.fc1 = torch.nn.Linear(128*28, 256)
+        self.fc2 = torch.nn.Linear(256, output_dim)
+        self.sigmoid = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        x = torch.nn.functional.relu(self.dim_reduction(x))
+        x = x.reshape(x.size(0), -1)
+        x = torch.nn.functional.relu(self.fc1(x))
+        x = self.fc2(x)
+        x = self.sigmoid(x)
+        return x
 
 
 class OpenSetLoss(torch.nn.Module):
-    def __init__(self, os_loss):
+    def __init__(self, os_loss, model_dimension=None):
         super(OpenSetLoss, self).__init__()
-        self.os_losses = {"softmax": self.softmax,
-                          "posunk": self.posunk,
+        self.os_function = {"softmax": self.softmax,
                           "eos": self.eos,
-                          "mos": self.mos}
-        self.os_loss = self.os_losses[os_loss]
+                          "objectosphere": self.objectosphere,
+                          "discriminator": self.discriminator}
+        self.os_function = self.os_function[os_loss]
+        self.os_loss = {"softmax": self.softmax_loss,
+                          "eos": self.eos_loss,
+                          "objectosphere": self.objectosphere_loss,
+                          "discriminator": self.discriminator_loss}
+        self.os_loss = self.os_loss[os_loss]
+        self.model_dimension = model_dimension
+        if os_loss == "discriminator":
+            self.discriminator_model = MLP(model_dimension, model_dimension*2, 1).cuda()
 
-    def softmax(self, logits, targets):
-        return {"known_loss": torch.FloatTensor([0]).cuda(), 
-                "unknown_loss": torch.FloatTensor([0]).cuda()}
+    def softmax(self, logits, all_prototypes):
+        return None
 
-    def eos(self, logits, targets):
+    def softmax_loss(self, logits, targets, similarity_matrix):
+        return {"os_loss": None}
+
+    def discriminator(self, logits, all_prototypes):
+        preds = logits.max(dim=-1)[1]
+        preds_features = all_prototypes[torch.arange(logits.shape[0]), preds, ...]
+        os_scores = self.discriminator_model(preds_features)
+        return os_scores
+
+    def discriminator_loss(self, logits, targets, similarity_matrix):
+        os_scores = logits["os_score"]
+        pred = similarity_matrix.max(dim=-1)[1]
+        correct = pred == targets
+        if correct.sum() > 0:
+            unknown_indices = targets == -1
+            # get the first correc.sum() unknkown indices
+            unknown_indices = unknown_indices.nonzero().squeeze(1)[:correct.sum()]
+            correct_known_indices = (pred == targets).nonzero().squeeze(1)
+            all_indices = torch.cat((unknown_indices, correct_known_indices))
+
+            os_labels = (targets[all_indices] != -1).float()
+            os_scores = os_scores[all_indices].squeeze(1)
+            os_loss = torch.nn.functional.binary_cross_entropy(os_scores, os_labels)
+            # print(os_scores)
+            # print(os_labels)
+            os_loss = os_loss * 10
+        else:
+            os_loss = None
+        return {"os_loss": os_loss}
+
+
+    def eos(self, logits, all_prototypes):
+        return logits
+
+    def eos_loss(self, logits, targets, similarity_matrix):
         """
-        from Learning Relative Feature Displacement for Few-Shot Open-Set Recognition
         for known queries, it uses cross-entropy loss
         so here we define only the case for unknown queries
         Intuitively, it pushes unknown logits to have the same values
         """
-        if len(logits.shape) > 2:
-            logits = logits.squeeze(0)
+        if len(similarity_matrix.shape) > 2:
+            similarity_matrix = similarity_matrix.squeeze(0)
 
         unknown_indices = targets == -1
         if unknown_indices.sum() > 0:
-            logits = logits[unknown_indices]
-            probs = torch.nn.functional.softmax(logits, dim=-1)
+            similarity_matrix = similarity_matrix[unknown_indices]
+            probs = torch.nn.functional.softmax(similarity_matrix, dim=-1)
             probs = probs + 1e-6  # avoid log(0)
             unknown_loss = -torch.log(probs).mean()
         else:
@@ -41,58 +99,44 @@ class OpenSetLoss(torch.nn.Module):
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
 
-    def mos(self, logits, targets):
-        """
-        from Learning Relative Feature Displacement for Few-Shot Open-Set Recognition
-        for known queries, it uses cross-entropy loss
-        so here we define only the case for unknown queries
-        Intuitively, it pushes unknown logits to have the same values
-        # TODO add marginn to open-set loss also
-        """
-        gamma = 0.5
-        delta = 2
+    def objectosphere(self, logits, all_prototypes):
+        return logits
 
-        if len(logits.shape) > 2:
-            logits = logits.squeeze(0)
+    def objectosphere_loss(self, logits, targets, similarity_matrix):
+        """
+        how to determine alpha and epsilon?
+        """
+        epsilon = 32
+        alpha = 0.0001
 
+        eos_loss = self.eos_loss(logits, targets, similarity_matrix)["unknown_loss"]
+        all_norms = logits["all_norms"]
+        if len(all_norms.shape) > 2:
+            all_norms = all_norms.squeeze(0)
+
+        # # sphere
         unknown_indices = targets == -1
-        if unknown_indices.sum() > 0:
-            logits = logits[unknown_indices]
-            probs = torch.nn.functional.softmax(logits, dim=-1)
-            unknown_loss = -torch.log(probs).mean() + (gamma*torch.max(torch.tensor(0), logits - delta))
+        if unknown_indices.sum() > 0:  # push norm of feature to 0
+            unk_norms = all_norms[unknown_indices]
+            unknown_sphere_loss = alpha*unk_norms.mean()
         else:
-            unknown_loss = None
-
-        return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
-
-    def posunk(self, logits, targets):
-        """
-        from Feature-semantic augmentation network for few-shot open-set recognition
-        """
-        if len(logits.shape) > 2:
-            logits = logits.squeeze(0)
+            unknown_sphere_loss = None
 
         known_indices = targets != -1
-        if known_indices.sum() > 0:
-            known_logits = torch.gather(logits[known_indices], 1, targets[known_indices].unsqueeze(1)).squeeze(1)  # 20
-            known_loss = torch.full_like(known_logits, fill_value=torch.exp(torch.tensor(1))) - torch.exp(known_logits)
-            known_loss = known_loss.mean()  # TODO mean or sum?
+        if known_indices.sum() > 0:  # push norm of feature to epsilon
+            known_norms = all_norms[known_indices]
+            known_sphere_norm = known_norms.mean()
+            known_sphere_loss = alpha*torch.maximum(epsilon-known_sphere_norm, torch.tensor(0))
         else:
-            known_loss = None
+            known_sphere_loss = None
 
-        unknown_indices = targets == -1
-        if unknown_indices.sum() > 0:
-            unknown_logits = logits[unknown_indices].reshape(-1)
-            pos_unknown_logits = unknown_logits[unknown_logits > 0]
-            pos_unknown_logits = pos_unknown_logits.mean()
-            unknown_loss = -1 + torch.exp(pos_unknown_logits)
-        else:
-            unknown_loss = None
-        
-        return {"known_loss": known_loss, "unknown_loss": unknown_loss}
+        return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": eos_loss, "unknown_sphere_loss": unknown_sphere_loss, "known_sphere_loss": known_sphere_loss}
 
-    def forward(self, logits, targets):
-        return self.os_loss(logits, targets)
+    def forward(self, logits, all_prototypes):
+        return self.os_function(logits, all_prototypes)
+
+    def loss(self, logits, targets, similarity_matrix):
+        return self.os_loss(logits, targets, similarity_matrix)
 
 
 class AverageMeter:
@@ -131,10 +175,26 @@ def compute_accuracy(logits, labels):
     correct = (preds == labels).sum().item()
     return correct / labels.size(0)
 
+def is_address_in_use(ip, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((ip, port))
+        except socket.error as e:
+            if e.errno == socket.errno.EADDRINUSE:
+                return True
+            else:
+                raise
+    return False
+
 
 def setup(rank, world_size, set_seeds):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    # To deal with multiple training on one machine
+    ports = [12355, 12356, 12357, 12358, 12359]
+    for port in ports:
+        if not is_address_in_use('localhost', port):
+            os.environ['MASTER_PORT'] = str(port)
+            break
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
     # Set seed for pytorch for reproducibility
@@ -190,7 +250,7 @@ class DataArgs:
         self.path = config["path"]
         self.shot = config["shot"]
         self.n_eval_steps = config["n_eval_steps"]
-        self.traintestlist = "splits/ssv2_OTAM"
+        self.traintestlist = config["traintestlist"]
         self.img_size = config["img_size"]
         self.way = config["way"]
         self.split = config["split"]

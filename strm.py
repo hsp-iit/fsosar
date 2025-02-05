@@ -220,6 +220,8 @@ class TemporalCrossTransformer(nn.Module):
             4-queries * 5 classes x 5(5 classes) and store this in a logit vector
         '''
         all_distances_tensor = torch.zeros(n_queries, self.args["way"]).to(device) # 20 x 5
+        all_diffs = torch.zeros(n_queries, self.args["way"], 28, 1152).to(device) # 20 x 5 x 1152
+        all_norms = torch.zeros(n_queries, self.args["way"], 2).to(device) # 20 x 5 x 1152
 
         for label_idx, c in enumerate(unique_labels):
         
@@ -261,8 +263,11 @@ class TemporalCrossTransformer(nn.Module):
 
             c_idx = c.long()
             all_distances_tensor[:,c_idx] = distance # 20
+            all_diffs[:,c_idx] = diff # 20 x 5 x 1152
+            all_norms[:, c_idx] = torch.stack((torch.norm(mh_queries_vs, dim=[-2,-1])**2,
+                                               torch.norm(query_prototype, dim=[-2,-1])**2), dim=-1)
         
-        return all_distances_tensor
+        return all_distances_tensor, all_diffs, all_norms
 
     @staticmethod
     def _extract_class_indices(labels, which_class):
@@ -468,7 +473,7 @@ class STRM(nn.Module):
         Similarity Loss and Patch-level and Frame-level Attention Blocks.
     """
 
-    def __init__(self, args):
+    def __init__(self, args, os_loss_function=None, os_loss=None):
         super(STRM, self).__init__()
 
         self.train()
@@ -502,6 +507,8 @@ class STRM(nn.Module):
         # MLP-mixing frame-level enrichment over the 8 frames.
         self.fr_enrich = MLP_Mix_Enrich(self.args["trans_linear_in_dim"], self.args["seq_len"])
         
+        self.os_loss_function = os_loss_function(os_loss, model_dimension=self.args["trans_linear_out_dim"])
+
 
     def loss(self, test_logits_sample, test_labels, device):
         """
@@ -566,13 +573,22 @@ class STRM(nn.Module):
 
         # Frame-level logits
         all_logits_fr = [t(context_features_fr, context_labels, target_features_fr) for t in self.transformers]
+        all_logits_fr, all_diffs, all_norms = [x[0] for x in all_logits_fr],  [x[1] for x in all_logits_fr], [x[2] for x in all_logits_fr]
         all_logits_fr = torch.stack(all_logits_fr, dim=-1) # 20 x 5 x 1[number of timesteps] 20 - 5 x 4[5-way x 4 queries/class]
 
         sample_logits_fr = all_logits_fr
         sample_logits_fr = torch.mean(sample_logits_fr, dim=[-1]) # 20 x 5
 
-        return_dict = {'logits': split_first_dim_linear(sample_logits_fr, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0), 
-                    'logits_post_pat': 0.1*split_first_dim_linear(sample_logits_post_pat, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0)}
+        logits = split_first_dim_linear(sample_logits_fr, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0)
+        all_diffs = torch.stack(all_diffs).squeeze(0)
+        all_norms = torch.stack(all_norms).squeeze(0)
+        os_logits = self.os_loss_function(logits, all_diffs)
+
+        return_dict = {'similarity_matrix': logits,
+                    'logits_post_pat': 0.1*split_first_dim_linear(sample_logits_post_pat, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0),
+                    'all_diffs': all_diffs,
+                    'all_norms': all_norms,
+                    'os_logits': os_logits}
 
         return return_dict  #, context_features  # Precomputed context features needed
 
@@ -604,9 +620,6 @@ class STRM(nn.Module):
             self.fr_enrich.cuda(0)
             self.fr_enrich = torch.nn.DataParallel(self.fr_enrich, device_ids=[i for i in range(0, self.args["num_gpus"])])
 
-            self.open_set_model.cuda(0)
-            self.open_set_model = torch.nn.DataParallel(self.open_set_model, device_ids=[i for i in range(0, self.args["num_gpus"])])
-
 
     def set_train(self):
         return  # Nothing to do for STRM, train is called in main loop
@@ -614,14 +627,13 @@ class STRM(nn.Module):
     def compute_additional_metrics(self, *args, **kwargs):
         return {}
 
-
-    def compute_known_losses(self, logits, logits_post_pat, true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None):
+    def compute_known_losses(self, similarity_matrix, logits_post_pat, target_labels=None, **kwargs):
 
         known_indices = target_labels != -1
-        task_loss = self.loss(logits[known_indices], target_labels[known_indices], logits.device) / known_indices.sum()
-        task_loss_post_pat = self.loss(logits_post_pat[known_indices], target_labels[known_indices], logits.device) / known_indices.sum()
+        task_loss = self.loss(similarity_matrix[known_indices], target_labels[known_indices], similarity_matrix.device) / known_indices.sum()
+        task_loss_post_pat = self.loss(logits_post_pat[known_indices], target_labels[known_indices], similarity_matrix.device) / known_indices.sum()
         task_loss_post_pat = task_loss_post_pat*0.1
-        self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(logits.shape[1])), data=logits.detach().cpu().numpy().tolist()),
+        self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(similarity_matrix.shape[1])), data=similarity_matrix.detach().cpu().numpy().tolist()),
                            "true_target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None])}
 
         return {"task_loss": task_loss, "task_loss_post_pat": task_loss_post_pat}

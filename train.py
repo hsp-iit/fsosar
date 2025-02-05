@@ -20,8 +20,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
     parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
-    parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMBD51", "UCF101", "NTURGBD120", "Diving44"], help='Data name')
-    parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "posunk", "eos", "mos"], help='Open set loss')
+    parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving44"], help='Data name')
+    parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "objectosphere", "discriminator"], help='Open set loss')
     return parser.parse_args()
 
 
@@ -41,6 +41,15 @@ def main(rank, world_size, model_name, data_name, os_loss):
     log_train_after_steps = config["log_train_after_steps"]
     eval_after_steps = config["eval_after_steps"]
     log_wandb = config["log_wandb"]
+    if model_name == "STRM":
+        if data_name == "SSv2":
+            lr = 0.001
+            eval_after_steps = 75000
+        elif data_name == "HMDB51" or data_name == "UCF101":
+            lr = 0.0001
+            eval_after_steps = 20000
+    config["eval_after_steps"] = eval_after_steps
+    config["lr"] = lr
 
     # Data
     def setup_dataloader(train=True):
@@ -55,7 +64,13 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["train_unique_classes"] = videodataset.train_split.get_unique_classes()
 
     # Model
-    model = getattr(importlib.import_module(model_name.lower()), model_name)(config)
+    # model_dimension = 768 if model_name == "SAFSAR" else 1152
+    os_loss_function = OpenSetLoss
+    model = getattr(importlib.import_module(model_name.lower()), model_name)(config,
+                                                                             os_loss_function=os_loss_function,
+                                                                             os_loss=os_loss)
+
+    # Set up model
     model.to(rank)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
     model.module.set_train()
@@ -77,9 +92,6 @@ def main(rank, world_size, model_name, data_name, os_loss):
         scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
     else:
         raise Exception("Wrong model name")
-
-    # Define open-set loss
-    os_loss_function = OpenSetLoss(os_loss)
 
     # Loop variables
     train_meter = AverageMeter("train/")
@@ -128,12 +140,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
             all_labels = all_labels.cuda()
 
             # Forward passs
-            similarity_matrix = None  # Suppress warnings
             logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list)
-            if 'logits' in logits:
-                similarity_matrix = logits['logits']
-            elif 'similarity_matrix' in logits:
-                similarity_matrix = logits['similarity_matrix']
+            similarity_matrix = logits['similarity_matrix']
             # TODO STRM have 2 similarity matrices, remember to use both for open set loss
 
             # Compute losses
@@ -148,14 +156,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
-                # unknown
-                if os_loss != "None":
-                    # SAFSAR WANTS true_target_labels
-                    # STRM wants all_labels
-                    acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
-                    unknown_losses = os_loss_function(similarity_matrix, acc_target)
-                else:
-                    unknown_losses = {}
+
+                acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
+                unknown_losses = model.module.os_loss_function.loss(logits, acc_target, similarity_matrix)
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:

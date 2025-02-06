@@ -5,7 +5,7 @@ import torch.distributed as dist
 import random
 import numpy as np
 import socket
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve
 
 # a simple MLP for binary classification with 2 layers
 class MLP(torch.nn.Module):
@@ -328,3 +328,23 @@ def compute_oscr(targets, logits):
     oscr = tpr / (tpr + fpr) if (tpr + fpr) > 0 else 0
     
     return oscr
+
+
+def compute_aupr(targets, logits):
+    """
+    Compute the Area Under the Precision-Recall Curve (AUPR).
+    
+    Parameters:
+    - targets (array-like): True labels (binary: 0 or 1).
+    - logits (array-like): Predicted probabilities for the positive class (usually output from a model).
+    
+    Returns:
+    - float: The computed AUPR score.
+    """
+    # Compute precision, recall, and thresholds
+    precision, recall, _ = precision_recall_curve(targets, logits)
+    
+    # Compute the area under the Precision-Recall curve (AUPR) using the trapezoidal rule
+    aupr = np.trapz(precision, recall)
+    
+    return aupr

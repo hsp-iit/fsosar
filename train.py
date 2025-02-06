@@ -12,7 +12,7 @@ from datetime import datetime
 import random
 import importlib
 from torch.optim.lr_scheduler import MultiStepLR
-from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_oscr
+from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_oscr, compute_aupr
 import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
@@ -206,9 +206,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
                            "os_auroc_mss": roc_auc_score(os_target, mss),
                            "os_auroc_mls": roc_auc_score(os_target, mls),
                            "os_auroc_mls_scaled": roc_auc_score(os_target, mssm),
-                           "os_aupr_mss": average_precision_score(os_target, mss),
-                           "os_aupr_mls": average_precision_score(os_target, mls),
-                           "os_aupr_mls_scaled": average_precision_score(os_target, mssm),
+                           "os_aupr_mss": compute_aupr(os_target, mss),
+                           "os_aupr_mls": compute_aupr(os_target, mls),
+                           "os_aupr_mls_scaled": compute_aupr(os_target, mssm),
                            "os_oscr_mss": compute_oscr(os_target, torch.nn.functional.softmax(similarity_matrix, dim=-1)),
                            "os_oscr_mls": compute_oscr(os_target, similarity_matrix),
                            "os_oscr_mls_scaled": compute_oscr(os_target, scaled_similarity_matrix)}

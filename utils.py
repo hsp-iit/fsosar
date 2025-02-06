@@ -105,30 +105,50 @@ class OpenSetLoss(torch.nn.Module):
     def objectosphere_loss(self, logits, targets, similarity_matrix):
         """
         how to determine alpha and epsilon?
+        we push unknown logits to 32 since exp(-16) = e-07
+        we push known logits to 0 since exp(-0) = 1
+        we set alpha to 0.0001 because this value balances closed-set loss magnitude
         """
-        epsilon = 32
-        alpha = 0.0001
+        epsilon = 16
+        alpha = 0.01
 
         eos_loss = self.eos_loss(logits, targets, similarity_matrix)["unknown_loss"]
-        all_norms = logits["all_norms"]
-        if len(all_norms.shape) > 2:
-            all_norms = all_norms.squeeze(0)
-
         # # sphere
         unknown_indices = targets == -1
-        if unknown_indices.sum() > 0:  # push norm of feature to 0
-            unk_norms = all_norms[unknown_indices]
-            unknown_sphere_loss = alpha*unk_norms.mean()
+        if unknown_indices.sum() > 0:  # if > -32, push norm of diff of unknown feature to -32
+            unk_norms = similarity_matrix[unknown_indices]
+            unk_norms = unk_norms.mean()
+            unknown_sphere_loss = alpha*torch.maximum(unk_norms-epsilon, torch.tensor(0))
         else:
             unknown_sphere_loss = None
 
         known_indices = targets != -1
-        if known_indices.sum() > 0:  # push norm of feature to epsilon
-            known_norms = all_norms[known_indices]
-            known_sphere_norm = known_norms.mean()
-            known_sphere_loss = alpha*torch.maximum(epsilon-known_sphere_norm, torch.tensor(0))
+        if known_indices.sum() > 0:
+            known_norms = similarity_matrix[known_indices]
+            known_norms = known_norms.mean()
+            known_sphere_loss = alpha*(-known_norms)
         else:
             known_sphere_loss = None
+
+        # all_norms = logits["all_norms"]
+        # if len(all_norms.shape) > 2:
+        #     all_norms = all_norms.squeeze(0)
+
+        # # # sphere
+        # unknown_indices = targets == -1
+        # if unknown_indices.sum() > 0:  # push norm of feature to 0
+        #     unk_norms = all_norms[unknown_indices]
+        #     unknown_sphere_loss = alpha*unk_norms.mean()
+        # else:
+        #     unknown_sphere_loss = None
+
+        # known_indices = targets != -1
+        # if known_indices.sum() > 0:  # push norm of feature to epsilon
+        #     known_norms = all_norms[known_indices]
+        #     known_sphere_norm = known_norms.mean()
+        #     known_sphere_loss = alpha*torch.maximum(epsilon-known_sphere_norm, torch.tensor(0))
+        # else:
+        #     known_sphere_loss = None
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": eos_loss, "unknown_sphere_loss": unknown_sphere_loss, "known_sphere_loss": known_sphere_loss}
 
@@ -331,20 +351,13 @@ def compute_oscr(targets, logits):
 
 
 def compute_aupr(targets, logits):
-    """
-    Compute the Area Under the Precision-Recall Curve (AUPR).
-    
-    Parameters:
-    - targets (array-like): True labels (binary: 0 or 1).
-    - logits (array-like): Predicted probabilities for the positive class (usually output from a model).
-    
-    Returns:
-    - float: The computed AUPR score.
-    """
-    # Compute precision, recall, and thresholds
     precision, recall, _ = precision_recall_curve(targets, logits)
     
-    # Compute the area under the Precision-Recall curve (AUPR) using the trapezoidal rule
+    # Reverse the arrays to ensure recall is in ascending order
+    precision = np.flip(precision)
+    recall = np.flip(recall)
+    
+    # Compute the area under the PR curve using the trapezoidal rule
     aupr = np.trapz(precision, recall)
     
     return aupr

@@ -22,7 +22,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
     parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving44"], help='Data name')
-    parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "objectosphere", "discriminator"], help='Open set loss')
+    parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "objectosphere", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
 
 
@@ -68,11 +68,12 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["train_unique_classes"] = videodataset.train_split.get_unique_classes()
 
     # Model
-    # model_dimension = 768 if model_name == "SAFSAR" else 1152
-    os_loss_function = OpenSetLoss
+    if os_loss == "gc":
+        config["way"] += 1
     model = getattr(importlib.import_module(model_name.lower()), model_name)(config,
-                                                                             os_loss_function=os_loss_function,
-                                                                             os_loss=os_loss)
+                                                                             disc=os_loss=="discriminator",
+                                                                             gc=os_loss=="gc")
+    os_loss_function = OpenSetLoss(os_loss)
 
     # Set up model
     model.to(rank)
@@ -155,14 +156,18 @@ def main(rank, world_size, model_name, data_name, os_loss):
             if known_indices.sum() > 0:
                 unknown_indices = all_labels == -1
                 true_target_labels = torch.argsort(support_labels)[all_labels]
-                true_target_labels[unknown_indices] = -1
+                if os_loss != "gc":
+                    true_target_labels[unknown_indices] = -1
+                else:
+                    true_target_labels[unknown_indices] = config["way"]-1
+                    all_labels[all_labels==-1] = config["way"]-1
                 known_losses = model.module.compute_known_losses(**logits, true_target_labels=true_target_labels,
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
 
                 acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
-                unknown_losses = model.module.os_loss_function.loss(logits, acc_target, similarity_matrix)
+                unknown_losses = os_loss_function.loss(logits, acc_target, similarity_matrix)
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
@@ -193,25 +198,43 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 scaled_similarity_matrix = None
                 if model_name == "STRM":
                     scaled_similarity_matrix = torch.exp(similarity_matrix)
+                    acc_target = all_labels
                 elif model_name == "SAFSAR":
                     scaled_similarity_matrix = (similarity_matrix + 1)/2
-                mssm = scaled_similarity_matrix.amax(dim=-1).detach().cpu().numpy()
-                mss = torch.nn.functional.softmax(similarity_matrix, dim=-1).amax(dim=-1).detach().cpu().numpy()
-                mls = similarity_matrix.amax(dim=-1).detach().cpu().numpy()
-                acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
-                os_target = acc_target!=-1
+                    acc_target = true_target_labels
+                if os_loss == "gc":
+                    os_target = acc_target!=(config["way"]-1)
+                else:
+                    os_target = acc_target!=-1
                 os_target = os_target.detach().cpu().numpy()
-                metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices],
-                                                      acc_target[known_indices]),
-                           "os_auroc_mss": roc_auc_score(os_target, mss),
-                           "os_auroc_mls": roc_auc_score(os_target, mls),
-                           "os_auroc_mls_scaled": roc_auc_score(os_target, mssm),
-                           "os_aupr_mss": compute_aupr(os_target, mss),
-                           "os_aupr_mls": compute_aupr(os_target, mls),
-                           "os_aupr_mls_scaled": compute_aupr(os_target, mssm),
-                           "os_oscr_mss": compute_oscr(os_target, torch.nn.functional.softmax(similarity_matrix, dim=-1)),
-                           "os_oscr_mls": compute_oscr(os_target, similarity_matrix),
-                           "os_oscr_mls_scaled": compute_oscr(os_target, scaled_similarity_matrix)}
+                if os_loss in ["softmax", "eos", "objectosphere"]:  # implcit methods
+                    mssm = scaled_similarity_matrix.amax(dim=-1).detach().cpu().numpy()
+                    mss = torch.nn.functional.softmax(similarity_matrix, dim=-1).amax(dim=-1).detach().cpu().numpy()
+                    mls = similarity_matrix.amax(dim=-1).detach().cpu().numpy()
+                    metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices],
+                                                        acc_target[known_indices]),
+                            "os_auroc_mss": roc_auc_score(os_target, mss),
+                            "os_auroc_mls": roc_auc_score(os_target, mls),
+                            "os_auroc_mls_scaled": roc_auc_score(os_target, mssm),
+                            "os_aupr_mss": compute_aupr(os_target, mss),
+                            "os_aupr_mls": compute_aupr(os_target, mls),
+                            "os_aupr_mls_scaled": compute_aupr(os_target, mssm),
+                            "os_oscr_mss": compute_oscr(os_target, similarity_matrix, mss),
+                            "os_oscr_mls": compute_oscr(os_target, similarity_matrix, mls),
+                            "os_oscr_mls_scaled": compute_oscr(os_target, scaled_similarity_matrix, mssm)}
+                else:  # explicit method
+                    if os_loss == "discriminator":
+                        os_score = logits["disc_prob"].squeeze(1)
+                    elif os_loss == "gc":
+                        os_score = torch.nn.functional.softmax(similarity_matrix, dim=-1)[:, -1]
+                        similarity_matrix = similarity_matrix[:, :-1]
+                    os_score = os_score.detach().cpu().numpy()
+                    metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices],
+                                                          acc_target[known_indices]),
+                              "os_auroc": roc_auc_score(os_target, os_score),
+                              "os_aupr": compute_aupr(os_target, os_score),
+                              "os_oscr": compute_oscr(os_target, similarity_matrix.detach().cpu().numpy(), os_score),
+                              "os_acc": ((torch.tensor(os_score).cuda()>0.5) == torch.tensor(os_target).cuda()).sum().item()/len(os_target)}
             else:
                 metrics = {"fs_acc": None, "os_auroc": None}
 
@@ -230,6 +253,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                         wandb.log(train_results)
                     else:
                         print(train_results)
+                        # print(train_results["train/os_loss"], train_results["train/fs_acc"])
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):

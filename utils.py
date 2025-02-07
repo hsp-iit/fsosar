@@ -7,57 +7,41 @@ import numpy as np
 import socket
 from sklearn.metrics import roc_auc_score, precision_recall_curve
 
-# a simple MLP for binary classification with 2 layers
-class MLP(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        super(MLP, self).__init__()
-        self.dim_reduction = torch.nn.Linear(input_dim, 128)
-        self.fc1 = torch.nn.Linear(128*28, 256)
-        self.fc2 = torch.nn.Linear(256, output_dim)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        x = torch.nn.functional.relu(self.dim_reduction(x))
-        x = x.reshape(x.size(0), -1)
-        x = torch.nn.functional.relu(self.fc1(x))
-        x = self.fc2(x)
-        x = self.sigmoid(x)
-        return x
-
-
 class OpenSetLoss(torch.nn.Module):
-    def __init__(self, os_loss, model_dimension=None):
+    def __init__(self, os_loss):
         super(OpenSetLoss, self).__init__()
-        self.os_function = {"softmax": self.softmax,
-                          "eos": self.eos,
-                          "objectosphere": self.objectosphere,
-                          "discriminator": self.discriminator}
-        self.os_function = self.os_function[os_loss]
+        # self.os_function = {"softmax": self.softmax,
+        #                   "eos": self.eos,
+        #                   "objectosphere": self.objectosphere,
+        #                   "discriminator": self.discriminator}
+        # self.os_function = self.os_function[os_loss]
         self.os_loss = {"softmax": self.softmax_loss,
                           "eos": self.eos_loss,
                           "objectosphere": self.objectosphere_loss,
-                          "discriminator": self.discriminator_loss}
+                          "discriminator": self.discriminator_loss,
+                          "gc": self.gc_loss}
         self.os_loss = self.os_loss[os_loss]
-        self.model_dimension = model_dimension
-        if os_loss == "discriminator":
-            self.discriminator_model = MLP(model_dimension, model_dimension*2, 1).cuda()
 
-    def softmax(self, logits, all_prototypes):
-        return None
+    def gc_loss(self, logits, targets, similarity_matrix):
+        return {"os_loss": None}
+
+    # def softmax(self, logits, all_prototypes):
+    #     return None
 
     def softmax_loss(self, logits, targets, similarity_matrix):
         return {"os_loss": None}
 
-    def discriminator(self, logits, all_prototypes):
-        preds = logits.max(dim=-1)[1]
-        preds_features = all_prototypes[torch.arange(logits.shape[0]), preds, ...]
-        os_scores = self.discriminator_model(preds_features)
-        return os_scores
+    # def discriminator(self, logits, all_prototypes):
+    #     preds = logits.max(dim=-1)[1]
+    #     preds_features = all_prototypes[torch.arange(logits.shape[0]), preds, ...]
+    #     os_scores = self.discriminator_model(preds_features)
+    #     return os_scores
 
     def discriminator_loss(self, logits, targets, similarity_matrix):
-        os_scores = logits["os_score"]
+        os_scores = logits["disc_prob"]
         pred = similarity_matrix.max(dim=-1)[1]
         correct = pred == targets
+        # correct = torch.ones_like(pred).bool() # TODO remove debug, this is to test the discriminator
         if correct.sum() > 0:
             unknown_indices = targets == -1
             # get the first correc.sum() unknkown indices
@@ -67,17 +51,18 @@ class OpenSetLoss(torch.nn.Module):
 
             os_labels = (targets[all_indices] != -1).float()
             os_scores = os_scores[all_indices].squeeze(1)
+            # os_labels = torch.ones_like(os_labels)  # TODO REMOVE DEBUG
             os_loss = torch.nn.functional.binary_cross_entropy(os_scores, os_labels)
-            # print(os_scores)
-            # print(os_labels)
-            os_loss = os_loss * 10
+            print(os_scores)
+            print(os_labels)
+            os_loss = os_loss * 1000
         else:
             os_loss = None
         return {"os_loss": os_loss}
 
 
-    def eos(self, logits, all_prototypes):
-        return logits
+    # def eos(self, logits, all_prototypes):
+    #     return logits
 
     def eos_loss(self, logits, targets, similarity_matrix):
         """
@@ -99,8 +84,8 @@ class OpenSetLoss(torch.nn.Module):
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
 
-    def objectosphere(self, logits, all_prototypes):
-        return logits
+    # def objectosphere(self, logits, all_prototypes):
+    #     return logits
 
     def objectosphere_loss(self, logits, targets, similarity_matrix):
         """
@@ -304,51 +289,6 @@ def compute_auroc(similarity_matrix, true_target_labels):
         os_auroc = None
     return os_auroc
 
-def compute_oscr(targets, logits):
-    """
-    Computes the Open Set Classification Rate (OSCR) from logits and targets.
-    
-    Args:
-        logits (torch.Tensor): Tensor of shape (n_queries, n_classes) containing logits for each query and class.
-        targets (torch.Tensor): Vector of size (n_queries), where each element is the true label (0 to n_classes-1 for known classes) or -1 for unknown labels.
-    
-    Returns:
-        float: OSCR score.
-    """
-    # Get the predicted class for each query (highest logit value)
-    _, predicted_classes = torch.max(logits, dim=1)
-    
-    # Initialize counters for TP, FP, FN, TN
-    tp, fp, fn, tn = 0, 0, 0, 0
-    
-    # Loop through all queries and compare predictions to targets
-    for i in range(len(targets)):
-        true_label = targets[i]
-        predicted_label = predicted_classes[i]
-        
-        # Case 1: Known class (0 to n_classes-1)
-        if true_label != -1:
-            if predicted_label == true_label:
-                tp += 1  # True Positive
-            else:
-                fn += 1  # False Negative
-        
-        # Case 2: Unknown class (-1)
-        else:
-            if predicted_label == true_label:
-                tn += 1  # True Negative (correctly rejected)
-            else:
-                fp += 1  # False Positive (incorrectly accepted as known)
-
-    # Calculate True Positive Rate (TPR) and False Positive Rate (FPR)
-    tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-
-    # Calculate OSCR (Open Set Classification Rate)
-    oscr = tpr / (tpr + fpr) if (tpr + fpr) > 0 else 0
-    
-    return oscr
-
 
 def compute_aupr(targets, logits):
     precision, recall, _ = precision_recall_curve(targets, logits)
@@ -361,3 +301,53 @@ def compute_aupr(targets, logits):
     aupr = np.trapz(precision, recall)
     
     return aupr
+
+
+def compute_oscr(targets, logits, os_score):
+    targets = np.array(targets)
+    logits = np.array(logits)
+    os_score = np.array(os_score)
+    
+    predicted = np.argmax(logits, axis=1)
+    
+    known_mask = (targets != -1)
+    unknown_mask = (targets == -1)
+    
+    known_total = np.sum(known_mask)
+    unknown_total = np.sum(unknown_mask)
+    
+    if known_total == 0 or unknown_total == 0:
+        return 0.0
+    
+    correct_known_mask = (predicted == targets) & known_mask
+    correct_known_os = os_score[correct_known_mask]
+    os_score_unknown = os_score[unknown_mask]
+    
+    cko_sorted = np.sort(correct_known_os)
+    osu_sorted = np.sort(os_score_unknown)
+    
+    thresholds = np.concatenate([correct_known_os, os_score_unknown, [1.0, 0.0]])
+    thresholds = np.unique(thresholds)
+    
+    max_osu = osu_sorted[-1] if unknown_total > 0 else 0.0
+    tau_prime = max_osu + 1e-9
+    thresholds = np.concatenate([thresholds, [tau_prime]])
+    thresholds = np.unique(thresholds)
+    thresholds.sort()
+    thresholds = thresholds[::-1]
+    
+    prev_ccr = 0.0
+    prev_crr = 0.0
+    area = 0.0
+    
+    for tau in thresholds:
+        tp = len(correct_known_os) - np.searchsorted(cko_sorted, tau, side='left')
+        ccr = tp / known_total
+        
+        tn = np.searchsorted(osu_sorted, tau, side='left')
+        crr = tn / unknown_total
+        
+        area += (crr - prev_crr) * (prev_ccr + ccr) / 2.0
+        prev_ccr, prev_crr = ccr, crr
+    
+    return max(0.0, min(area, 1.0))

@@ -220,8 +220,7 @@ class TemporalCrossTransformer(nn.Module):
             4-queries * 5 classes x 5(5 classes) and store this in a logit vector
         '''
         all_distances_tensor = torch.zeros(n_queries, self.args["way"]).to(device) # 20 x 5
-        all_diffs = torch.zeros(n_queries, self.args["way"], 28, 1152).to(device) # 20 x 5 x 1152
-        all_norms = torch.zeros(n_queries, self.args["way"], 2).to(device) # 20 x 5 x 1152
+        all_prototypes = torch.zeros(n_queries, self.args["way"], 28, 1152).to(device) # 20 x 5 x 1152
 
         for label_idx, c in enumerate(unique_labels):
         
@@ -263,11 +262,9 @@ class TemporalCrossTransformer(nn.Module):
 
             c_idx = c.long()
             all_distances_tensor[:,c_idx] = distance # 20
-            all_diffs[:,c_idx] = diff # 20 x 5 x 1152
-            all_norms[:, c_idx] = torch.stack((torch.norm(mh_queries_vs, dim=[-2,-1])**2,
-                                               torch.norm(query_prototype, dim=[-2,-1])**2), dim=-1)
+            all_prototypes[:,c_idx] = (mh_queries_vs - query_prototype) # 20 x 5 x 1152
         
-        return all_distances_tensor, all_diffs, all_norms
+        return all_distances_tensor, all_prototypes
 
     @staticmethod
     def _extract_class_indices(labels, which_class):
@@ -473,7 +470,7 @@ class STRM(nn.Module):
         Similarity Loss and Patch-level and Frame-level Attention Blocks.
     """
 
-    def __init__(self, args, os_loss_function=None, os_loss=None):
+    def __init__(self, args, disc, gc):
         super(STRM, self).__init__()
 
         self.train()
@@ -507,13 +504,21 @@ class STRM(nn.Module):
         # MLP-mixing frame-level enrichment over the 8 frames.
         self.fr_enrich = MLP_Mix_Enrich(self.args["trans_linear_in_dim"], self.args["seq_len"])
         
-        self.os_loss_function = os_loss_function(os_loss, model_dimension=self.args["trans_linear_out_dim"])
+        if gc:
+            self.garbage_support = nn.Parameter(torch.randn(1, self.args["seq_len"], self.args["trans_linear_in_dim"]), requires_grad=True).cuda()
+        elif disc:
+            self.discriminator = BinaryClassificationModel(1792).cuda()
+        self.gc = gc
+        self.disc = disc
 
 
     def loss(self, test_logits_sample, test_labels, device):
         """
         Compute the classification loss.
         """
+        weights = torch.tensor([1.0]*self.args["way"], dtype=torch.float, device=device, requires_grad=False)
+        if self.gc:
+            weights[-1] = 1/5  # each class appear 1/10 of the time, os 1/2 of the time, 1/2*1/5 = 1/10
         if len(test_logits_sample.shape) == 2:
             test_logits_sample = test_logits_sample.unsqueeze(0)
         size = test_logits_sample.size()
@@ -522,7 +527,7 @@ class STRM(nn.Module):
 
         log_py = torch.empty(size=(size[0], size[1]), dtype=torch.float, device=device)
         for sample in range(sample_count):
-            log_py[sample] = -F.cross_entropy(test_logits_sample[sample], test_labels, reduction='none')
+            log_py[sample] = -F.cross_entropy(test_logits_sample[sample], test_labels, reduction='none', weight=weights)
         score = torch.logsumexp(log_py, dim=0) - torch.log(num_samples)
         return -torch.sum(score, dim=0)
 
@@ -545,6 +550,10 @@ class STRM(nn.Module):
             context_features = context_features.reshape(-1, self.args["seq_len"], self.args["trans_linear_in_dim"]) # 25 x 8 x 2048
         else:
             context_features = precomputed_context_features
+
+        if self.gc:
+            context_features = torch.cat((context_features, self.garbage_support), 0)
+            context_labels = torch.cat((context_labels, torch.tensor(self.args["way"]-1).cuda().unsqueeze(0)))
         # Line below added by me to make this work
         target_images = target_images.reshape(-1, 3, self.args["img_size"], self.args["img_size"])
         target_features = self.resnet(target_images) # 160 x 2048 x 7 x 7
@@ -573,22 +582,22 @@ class STRM(nn.Module):
 
         # Frame-level logits
         all_logits_fr = [t(context_features_fr, context_labels, target_features_fr) for t in self.transformers]
-        all_logits_fr, all_diffs, all_norms = [x[0] for x in all_logits_fr],  [x[1] for x in all_logits_fr], [x[2] for x in all_logits_fr]
+        all_logits_fr, all_prototypes = [x[0] for x in all_logits_fr],  [x[1] for x in all_logits_fr]
         all_logits_fr = torch.stack(all_logits_fr, dim=-1) # 20 x 5 x 1[number of timesteps] 20 - 5 x 4[5-way x 4 queries/class]
 
         sample_logits_fr = all_logits_fr
         sample_logits_fr = torch.mean(sample_logits_fr, dim=[-1]) # 20 x 5
 
         logits = split_first_dim_linear(sample_logits_fr, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0)
-        all_diffs = torch.stack(all_diffs).squeeze(0)
-        all_norms = torch.stack(all_norms).squeeze(0)
-        os_logits = self.os_loss_function(logits, all_diffs)
+        all_prototypes = torch.stack(all_prototypes).squeeze(0)
+        if self.disc:
+            disc_prob = self.discriminator(logits, all_prototypes)
+        else:
+            disc_prob = None
 
         return_dict = {'similarity_matrix': logits,
                     'logits_post_pat': 0.1*split_first_dim_linear(sample_logits_post_pat, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0),
-                    'all_diffs': all_diffs,
-                    'all_norms': all_norms,
-                    'os_logits': os_logits}
+                    'disc_prob': disc_prob}
 
         return return_dict  #, context_features  # Precomputed context features needed
 

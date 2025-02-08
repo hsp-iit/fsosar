@@ -90,9 +90,9 @@ class OpenSetLoss(torch.nn.Module):
     def objectosphere_loss(self, logits, targets, similarity_matrix):
         """
         how to determine alpha and epsilon?
-        we push unknown logits to 32 since exp(-16) = e-07
+        we push unknown logits to -16 since exp(-16) = 0.0000001
         we push known logits to 0 since exp(-0) = 1
-        we set alpha to 0.0001 because this value balances closed-set loss magnitude
+        we set alpha to 0.01 because this value balances closed-set loss magnitude
         """
         epsilon = 16
         alpha = 0.01

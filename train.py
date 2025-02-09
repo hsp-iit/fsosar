@@ -47,7 +47,10 @@ def main(rank, world_size, model_name, data_name, os_loss):
     log_wandb = config["log_wandb"]
     if model_name == "STRM":
         if data_name == "SSv2":
-            lr = 0.001
+            if os_loss == "gc":
+                lr = 0.0001
+            else:
+                lr = 0.001
             eval_after_steps = 75000
         elif data_name == "HMDB51" or data_name == "UCF101":
             lr = 0.0001
@@ -228,6 +231,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                     elif os_loss == "gc":
                         os_score = torch.nn.functional.softmax(similarity_matrix, dim=-1)[:, -1]
                         similarity_matrix = similarity_matrix[:, :-1]
+                        os_score = 1-os_score  # this is unknown score, but we work with known score
                     os_score = os_score.detach().cpu().numpy()
                     metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices],
                                                           acc_target[known_indices]),
@@ -291,7 +295,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                         wandb.log(test_results)
                     # Save the model with test accuracy as the name
                     acc_vip = test_results["test/fs_acc"]
-                    auroc_vip = test_results["test/os_auroc_mss"]
+                    auroc_vip = test_results["test/os_acc"]
                     model_path = os.path.join(checkpoint_dir, f"STEPS_{total_step}_ACC_{acc_vip:.4f}_AUROC_{auroc_vip:.4f}.pt")
                     torch.save(model.state_dict(), model_path)
                 average_meter = train_meter

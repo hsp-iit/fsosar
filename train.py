@@ -214,6 +214,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                     mssm = scaled_similarity_matrix.amax(dim=-1).detach().cpu().numpy()
                     mss = torch.nn.functional.softmax(similarity_matrix, dim=-1).amax(dim=-1).detach().cpu().numpy()
                     mls = similarity_matrix.amax(dim=-1).detach().cpu().numpy()
+                    os_sim = similarity_matrix.detach().cpu().numpy()
                     metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices],
                                                         acc_target[known_indices]),
                             "os_auroc_mss": roc_auc_score(os_target, mss),
@@ -222,9 +223,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
                             "os_aupr_mss": compute_aupr(os_target, mss),
                             "os_aupr_mls": compute_aupr(os_target, mls),
                             "os_aupr_mls_scaled": compute_aupr(os_target, mssm),
-                            "os_oscr_mss": compute_oscr(os_target, similarity_matrix, mss),
-                            "os_oscr_mls": compute_oscr(os_target, similarity_matrix, mls),
-                            "os_oscr_mls_scaled": compute_oscr(os_target, scaled_similarity_matrix, mssm)}
+                            "os_oscr_mss": compute_oscr(os_target, os_sim, mss),
+                            "os_oscr_mls": compute_oscr(os_target, os_sim, mls),
+                            "os_oscr_mls_scaled": compute_oscr(os_target, os_sim, mssm)}
                 else:  # explicit method
                     if os_loss == "discriminator":
                         os_score = logits["disc_prob"].squeeze(1)

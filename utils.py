@@ -333,18 +333,17 @@ def compute_oscr(targets, logits, os_score):
     tau_prime = max_osu + 1e-9
     thresholds = np.concatenate([thresholds, [tau_prime]])
     thresholds = np.unique(thresholds)
-    thresholds.sort()
-    thresholds = thresholds[::-1]
+    thresholds.sort()  # Now sorted in ascending order
     
     prev_ccr = 0.0
     prev_crr = 0.0
     area = 0.0
     
     for tau in thresholds:
-        tp = len(correct_known_os) - np.searchsorted(cko_sorted, tau, side='left')
+        tp = len(correct_known_os) - np.searchsorted(cko_sorted, tau, side='right')
         ccr = tp / known_total
         
-        tn = np.searchsorted(osu_sorted, tau, side='left')
+        tn = np.searchsorted(osu_sorted, tau, side='right')
         crr = tn / unknown_total
         
         area += (crr - prev_crr) * (prev_ccr + ccr) / 2.0

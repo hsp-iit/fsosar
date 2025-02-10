@@ -233,12 +233,14 @@ def main(rank, world_size, model_name, data_name, os_loss):
                         os_score = torch.nn.functional.softmax(similarity_matrix, dim=-1)[:, -1]
                         similarity_matrix = similarity_matrix[:, :-1]
                         os_score = 1-os_score  # this is unknown score, but we work with known score
+                        acc_target[acc_target==(config["way"]-1)] = -1  # replace index of unknown class with -1
+
                     os_score = os_score.detach().cpu().numpy()
                     metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices],
                                                           acc_target[known_indices]),
                               "os_auroc": roc_auc_score(os_target, os_score),
                               "os_aupr": compute_aupr(os_target, os_score),
-                              "os_oscr": compute_oscr(os_target, similarity_matrix.detach().cpu().numpy(), os_score),
+                              "os_oscr": compute_oscr(acc_target.detach().cpu().numpy(), similarity_matrix.detach().cpu().numpy(), os_score),
                               "os_acc": ((torch.tensor(os_score).cuda()>0.5) == torch.tensor(os_target).cuda()).sum().item()/len(os_target)}
             else:
                 metrics = {"fs_acc": None, "os_auroc": None}

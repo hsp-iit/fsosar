@@ -88,15 +88,19 @@ class SAFSAR(nn.Module):
             inputs = {"pixel_values": support_set.repeat_interleave(2, dim=1).cuda()}
         outputs = self.model(**inputs)
         support_features = outputs.hidden_states[-1].mean(dim=1)
-        support_features = self.model.module.fc_norm(support_features).reshape(self.way, self.shot, -1).mean(dim=1)
+        support_features = self.model.module.fc_norm(support_features)
+        support_features_mean = []
+        for c in support_labels.unique():
+            support_features_mean.append(support_features[support_labels == c].mean(dim=0))
+        support_features_mean = torch.stack(support_features_mean)
         # add textual features
         if self.use_textual_embedding:
             textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
-            raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_features, textual_embeddings)]
+            raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_features_mean, textual_embeddings)]
             support_mm_features = [self.mm_fusion_module(emb)[0] for emb in raw_support_mm_features]
             support_mm_features = torch.stack(support_mm_features)
         else:
-            support_mm_features = support_features
+            support_mm_features = support_features_mean
 
         # Generate query prototypes
         if len(target_set.shape) == 4:  # n_q, seq_len, 224, 3, 224

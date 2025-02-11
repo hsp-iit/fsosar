@@ -5,6 +5,6 @@
     "n_eval_steps": 20000,
     "visual_debug": false,
     "checkpoint_path": "",
-    "eval_after_steps": 0,
+    "eval_after_steps": 20000,
     "exit_after_eval": true
 }

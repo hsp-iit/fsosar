@@ -31,7 +31,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["model_name"] = model_name
     config["data_name"] = data_name
     config["os_loss"] = os_loss
-    # setup(rank, world_size, set_seeds=config["eval_only"])
+    if model_name == "STRM":
+        setup(rank, world_size, set_seeds=config["eval_only"])
 
     # Create directory for saving checkpoints
     if rank == 0:
@@ -54,7 +55,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             eval_after_steps = 75000
         elif data_name == "HMDB51" or data_name == "UCF101":
             lr = 0.0001
-            eval_after_steps = 20000
+            eval_after_steps = 20
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
 
@@ -62,9 +63,11 @@ def main(rank, world_size, model_name, data_name, os_loss):
     def setup_dataloader(train=True):
         videodataset = VideoDataset(DataArgs(config), preprocessing=model_name)
         videodataset.train = train
-        # train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
-        # dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=config["num_workers"])
-        dataloader = DataLoader(videodataset, batch_size=1, num_workers=config["num_workers"])
+        if model_name == "STRM":
+            train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
+            dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=config["num_workers"])
+        elif model_name == "SAFSAR":
+            dataloader = DataLoader(videodataset, batch_size=1, num_workers=config["num_workers"])
         return dataloader, videodataset
     dataloader, videodataset = setup_dataloader()
     config["classes_names"] = videodataset.class_folders
@@ -81,7 +84,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
     # Set up model
     model.to(rank)
-    # model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    if model_name == "STRM":
+        model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+        model = model.module
     model.set_train()
     model.train()
     if config["eval_only"]:
@@ -226,7 +231,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
                             "os_aupr_mls_scaled": compute_aupr(os_target, mssm),
                             "os_oscr_mss": compute_oscr(acc_target.detach().cpu().numpy(), os_sim, mss),
                             "os_oscr_mls": compute_oscr(acc_target.detach().cpu().numpy(), os_sim, mls),
-                            "os_oscr_mls_scaled": compute_oscr(acc_target.detach().cpu().numpy(), os_sim, mssm)}
+                            "os_oscr_mls_scaled": compute_oscr(acc_target.detach().cpu().numpy(), os_sim, mssm),
+                            "os_acc": ((torch.tensor(mss).cuda()>0.5) == torch.tensor(os_target).cuda()).sum().item()/len(os_target)}
                 else:  # explicit method
                     if os_loss == "discriminator":
                         os_score = logits["disc_prob"].squeeze(1)
@@ -326,5 +332,9 @@ if __name__ == "__main__":
     data_name = args.data
     os_loss = args.os_loss
     world_size = torch.cuda.device_count()
-    # torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)
-    main(0, world_size, model_name, data_name, os_loss)
+    # NOTE to train STRM, we do 4 training on 4 GPUs, this works better with DDP
+    # for SAFSAR we use dataparallel for the feature extractor
+    if model_name == "STRM":
+        torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)
+    elif model == "SAFSAR":
+        main(0, world_size, model_name, data_name, os_loss)

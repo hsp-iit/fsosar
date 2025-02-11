@@ -273,7 +273,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
-                dist.barrier()
+                if model_name == "STRM":
+                    dist.barrier()
                 if rank == 0:
                     progress_bar.close()
                     progress_bar = tqdm(total=config["n_eval_steps"], desc="Evaluation Progress")
@@ -291,7 +292,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Disable evaluation
             if not training and step == config["n_eval_steps"]:
-                dist.barrier()
+                if model_name == "STRM":
+                    dist.barrier()
                 model.set_train()
                 model.train()
                 del dataloader
@@ -307,8 +309,13 @@ def main(rank, world_size, model_name, data_name, os_loss):
                         wandb.log(test_results)
                     # Save the model with test accuracy as the name
                     acc_vip = test_results["test/fs_acc"]
-                    auroc_vip = test_results["test/os_acc"]
-                    model_path = os.path.join(checkpoint_dir, f"STEPS_{total_step}_ACC_{acc_vip:.4f}_AUROC_{auroc_vip:.4f}.pt")
+                    if "test/os_acc" in test_results:
+                        os_vip = test_results["test/os_acc"]
+                        os_metric = "os_acc"
+                    elif "test/os_acc_mss" in test_results:
+                        os_vip = test_results["test/os_acc_mss"]
+                        os_metric = "os_acc_mss"
+                    model_path = os.path.join(checkpoint_dir, f"STEPS_{total_step}_ACC_{acc_vip:.4f}_{os_metric}_{os_vip:.4f}.pt")
                     torch.save(model.state_dict(), model_path)
                 average_meter = train_meter
                 training = True

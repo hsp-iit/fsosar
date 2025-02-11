@@ -8,20 +8,21 @@ import numpy as np
 
 
 class SAFSAR(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, disc=None, gc=None):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(config["processor_name"])
         self.model = AutoModelForVideoClassification.from_pretrained(config["mm_model_name"], output_hidden_states=True)
+        # Freeze patch_embeddings
+        for param in self.model.videomae.embeddings.parameters():
+            param.requires_grad = False
+        # Distribute feature extractor for 5-shot training
+        self.model = torch.nn.DataParallel(self.model)
         self.way = config["way"]
         self.shot = config["shot"]
         self.seq_len = config["seq_len"]
         self.query_per_class = config["query_per_class"]
         self.query_per_class_test = config["query_per_class_test"]
         self.train_unique_classes = config["train_unique_classes"]
-
-        # Freeze patch_embeddings
-        for param in self.model.videomae.embeddings.parameters():
-            param.requires_grad = False
 
         self.mm_fusion_module = self._build_transformer(config["hidden_size"],
                                                         config["num_layers_mm"],
@@ -43,6 +44,9 @@ class SAFSAR(nn.Module):
         self.class_name_embeddings = self.get_textual_embeddings(config["classes_names"])
         self.alpha = config["alpha"]
         self.debug_samples_counter = 0
+
+        if gc:
+            self.garbage_prototype = torch.rand.random((1, 768)).cuda()
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
@@ -84,7 +88,7 @@ class SAFSAR(nn.Module):
             inputs = {"pixel_values": support_set.repeat_interleave(2, dim=1).cuda()}
         outputs = self.model(**inputs)
         support_features = outputs.hidden_states[-1].mean(dim=1)
-        support_features = self.model.fc_norm(support_features).reshape(self.way, self.shot, -1).mean(dim=1)
+        support_features = self.model.module.fc_norm(support_features).reshape(self.way, self.shot, -1).mean(dim=1)
         # add textual features
         if self.use_textual_embedding:
             textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
@@ -106,7 +110,7 @@ class SAFSAR(nn.Module):
         inputs['pixel_values'] = inputs['pixel_values'].cuda()
         outputs = self.model(**inputs)
         query_features = outputs.hidden_states[-1].mean(dim=1)
-        query_features = self.model.fc_norm(query_features)
+        query_features = self.model.module.fc_norm(query_features)
 
         # Repeat embeddings for each query
         support_mm_features = support_mm_features.unsqueeze(0).repeat(n_queries, 1, 1)
@@ -133,6 +137,7 @@ class SAFSAR(nn.Module):
 
     def compute_known_losses(self, similarity_matrix, support_global_logits, query_global_logits,
                            true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None):
+        true_target_labels = target_labels  # if ordered in model. this is is the best way
         known_indices = true_target_labels != -1
         similarity_matrix_k = similarity_matrix[known_indices]
         known_true_target_labels = true_target_labels[known_indices]

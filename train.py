@@ -31,7 +31,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["model_name"] = model_name
     config["data_name"] = data_name
     config["os_loss"] = os_loss
-    setup(rank, world_size, set_seeds=config["eval_only"])
+    # setup(rank, world_size, set_seeds=config["eval_only"])
 
     # Create directory for saving checkpoints
     if rank == 0:
@@ -62,8 +62,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
     def setup_dataloader(train=True):
         videodataset = VideoDataset(DataArgs(config), preprocessing=model_name)
         videodataset.train = train
-        train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
-        dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=config["num_workers"])
+        # train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
+        # dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=config["num_workers"])
+        dataloader = DataLoader(videodataset, batch_size=1, num_workers=config["num_workers"])
         return dataloader, videodataset
     dataloader, videodataset = setup_dataloader()
     config["classes_names"] = videodataset.class_folders
@@ -80,8 +81,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
     # Set up model
     model.to(rank)
-    model = DDP(model, device_ids=[rank], find_unused_parameters=True)
-    model.module.set_train()
+    # model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    model.set_train()
     model.train()
     if config["eval_only"]:
         model.load_state_dict(torch.load(config["checkpoint_path"]))
@@ -164,7 +165,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 else:
                     true_target_labels[unknown_indices] = config["way"]-1
                     all_labels[all_labels==-1] = config["way"]-1
-                known_losses = model.module.compute_known_losses(**logits, true_target_labels=true_target_labels,
+                known_losses = model.compute_known_losses(**logits, true_target_labels=true_target_labels,
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
@@ -174,7 +175,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
-                model.module.visual_debug(**logits, videodataset=videodataset,
+                model.visual_debug(**logits, videodataset=videodataset,
                                                   support_labels=support_labels,
                                                   target_labels=all_labels,
                                                   batch_class_list=batch_class_list,
@@ -245,7 +246,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             else:
                 metrics = {"fs_acc": None, "os_auroc": None}
 
-            additional_metrics = model.module.compute_additional_metrics(**logits, support_labels=support_labels,
+            additional_metrics = model.compute_additional_metrics(**logits, support_labels=support_labels,
                                                                                    target_labels=all_labels,
                                                                                    batch_class_list=batch_class_list)
             metrics.update(additional_metrics)
@@ -254,7 +255,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             # Training logging
             if step % log_train_after_steps == 0 and step > 0 and training:
                 train_results = average_meter.average()
-                train_results.update(model.module.get_debug_data())
+                train_results.update(model.get_debug_data())
                 if rank == 0:
                     if log_wandb:
                         wandb.log(train_results)
@@ -268,7 +269,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 if rank == 0:
                     progress_bar.close()
                     progress_bar = tqdm(total=config["n_eval_steps"], desc="Evaluation Progress")
-                model.module.set_eval()
+                model.set_eval()
                 model.eval()
                 del dataloader
                 del videodataset
@@ -283,7 +284,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             # Disable evaluation
             if not training and step == config["n_eval_steps"]:
                 dist.barrier()
-                model.module.set_train()
+                model.set_train()
                 model.train()
                 del dataloader
                 del videodataset
@@ -293,7 +294,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
                     progress_bar.close()
                     progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
                     print(test_results)
-                    test_results.update(model.module.get_debug_data())
+                    test_results.update(model.get_debug_data())
                     if config["log_wandb"]:
                         wandb.log(test_results)
                     # Save the model with test accuracy as the name
@@ -325,4 +326,5 @@ if __name__ == "__main__":
     data_name = args.data
     os_loss = args.os_loss
     world_size = torch.cuda.device_count()
-    torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)
+    # torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)
+    main(0, world_size, model_name, data_name, os_loss)

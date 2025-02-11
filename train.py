@@ -224,9 +224,9 @@ def main(rank, world_size, model_name, data_name, os_loss):
                             "os_aupr_mss": compute_aupr(os_target, mss),
                             "os_aupr_mls": compute_aupr(os_target, mls),
                             "os_aupr_mls_scaled": compute_aupr(os_target, mssm),
-                            "os_oscr_mss": compute_oscr(os_target, os_sim, mss),
-                            "os_oscr_mls": compute_oscr(os_target, os_sim, mls),
-                            "os_oscr_mls_scaled": compute_oscr(os_target, os_sim, mssm)}
+                            "os_oscr_mss": compute_oscr(acc_target.detach().cpu().numpy(), os_sim, mss),
+                            "os_oscr_mls": compute_oscr(acc_target.detach().cpu().numpy(), os_sim, mls),
+                            "os_oscr_mls_scaled": compute_oscr(acc_target.detach().cpu().numpy(), os_sim, mssm)}
                 else:  # explicit method
                     if os_loss == "discriminator":
                         os_score = logits["disc_prob"].squeeze(1)

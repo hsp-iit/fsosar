@@ -94,7 +94,7 @@ class OpenSetLoss(torch.nn.Module):
         we push known logits to 0 since exp(-0) = 1
         we set alpha to 0.01 because this value balances closed-set loss magnitude
         """
-        epsilon = 16
+        epsilon = 4
         alpha = 0.01
 
         eos_loss = self.eos_loss(logits, targets, similarity_matrix)["unknown_loss"]

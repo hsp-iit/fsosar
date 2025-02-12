@@ -56,6 +56,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
         elif data_name == "HMDB51" or data_name == "UCF101":
             lr = 0.0001
             eval_after_steps = 20000
+    elif model_name == "SAFSAR":
+        eval_after_steps = 30000
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
 

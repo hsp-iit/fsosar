@@ -31,7 +31,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["model_name"] = model_name
     config["data_name"] = data_name
     config["os_loss"] = os_loss
-    if model_name == "STRM":
+    if model_name == "STRM":  # When training more models on more GPU on a single machine, DDP is needed for performance
         setup(rank, world_size, set_seeds=config["eval_only"])
 
     # Create directory for saving checkpoints
@@ -78,7 +78,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["train_unique_classes"] = videodataset.train_split.get_unique_classes()
 
     # Model
-    if os_loss == "gc":
+    if os_loss == "gc":  # We add one class for the unknown class, dataset is already declared
         config["way"] += 1
     model = getattr(importlib.import_module(model_name.lower()), model_name)(config,
                                                                              disc=os_loss=="discriminator",
@@ -162,24 +162,15 @@ def main(rank, world_size, model_name, data_name, os_loss):
             # TODO STRM have 2 similarity matrices, remember to use both for open set loss
 
             # Compute losses
-            # TODO strm uses target_labels oreded by support_labels, while safsar uses the true target labels
             # known
             known_indices = all_labels != -1
             if known_indices.sum() > 0:
-                # unknown_indices = all_labels == -1
-                # true_target_labels = torch.argsort(support_labels)[all_labels]
-                # if os_loss != "gc":
-                #     true_target_labels[unknown_indices] = -1
-                # else:
-                if os_loss == "gc":
-                    # true_target_labels[unknown_indices] = config["way"]-1
+                if os_loss == "gc":  # Since GC is computed only as known loss, we do this
                     all_labels[all_labels==-1] = config["way"]-1
                 known_losses = model.compute_known_losses(**logits, true_target_labels=None,
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
-
-                # acc_target = true_target_labels if model_name == "SAFSAR" else all_labels
                 unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix)
             
             # Visual debug must be called only during evaluation

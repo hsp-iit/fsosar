@@ -10,11 +10,6 @@ from sklearn.metrics import roc_auc_score, precision_recall_curve
 class OpenSetLoss(torch.nn.Module):
     def __init__(self, os_loss):
         super(OpenSetLoss, self).__init__()
-        # self.os_function = {"softmax": self.softmax,
-        #                   "eos": self.eos,
-        #                   "objectosphere": self.objectosphere,
-        #                   "discriminator": self.discriminator}
-        # self.os_function = self.os_function[os_loss]
         self.os_loss = {"softmax": self.softmax_loss,
                           "eos": self.eos_loss,
                           "objectosphere": self.objectosphere_loss,
@@ -25,17 +20,8 @@ class OpenSetLoss(torch.nn.Module):
     def gc_loss(self, logits, targets, similarity_matrix):
         return {"os_loss": None}
 
-    # def softmax(self, logits, all_prototypes):
-    #     return None
-
     def softmax_loss(self, logits, targets, similarity_matrix):
         return {"os_loss": None}
-
-    # def discriminator(self, logits, all_prototypes):
-    #     preds = logits.max(dim=-1)[1]
-    #     preds_features = all_prototypes[torch.arange(logits.shape[0]), preds, ...]
-    #     os_scores = self.discriminator_model(preds_features)
-    #     return os_scores
 
     def discriminator_loss(self, logits, targets, similarity_matrix):
         os_scores = logits["disc_prob"]
@@ -60,10 +46,6 @@ class OpenSetLoss(torch.nn.Module):
             os_loss = None
         return {"os_loss": os_loss}
 
-
-    # def eos(self, logits, all_prototypes):
-    #     return logits
-
     def eos_loss(self, logits, targets, similarity_matrix):
         """
         for known queries, it uses cross-entropy loss
@@ -83,9 +65,6 @@ class OpenSetLoss(torch.nn.Module):
             unknown_loss = None
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
-
-    # def objectosphere(self, logits, all_prototypes):
-    #     return logits
 
     def objectosphere_loss(self, logits, targets, similarity_matrix):
         """
@@ -114,26 +93,6 @@ class OpenSetLoss(torch.nn.Module):
             known_sphere_loss = alpha*(-known_norms)
         else:
             known_sphere_loss = None
-
-        # all_norms = logits["all_norms"]
-        # if len(all_norms.shape) > 2:
-        #     all_norms = all_norms.squeeze(0)
-
-        # # # sphere
-        # unknown_indices = targets == -1
-        # if unknown_indices.sum() > 0:  # push norm of feature to 0
-        #     unk_norms = all_norms[unknown_indices]
-        #     unknown_sphere_loss = alpha*unk_norms.mean()
-        # else:
-        #     unknown_sphere_loss = None
-
-        # known_indices = targets != -1
-        # if known_indices.sum() > 0:  # push norm of feature to epsilon
-        #     known_norms = all_norms[known_indices]
-        #     known_sphere_norm = known_norms.mean()
-        #     known_sphere_loss = alpha*torch.maximum(epsilon-known_sphere_norm, torch.tensor(0))
-        # else:
-        #     known_sphere_loss = None
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": eos_loss, "unknown_sphere_loss": unknown_sphere_loss, "known_sphere_loss": known_sphere_loss}
 

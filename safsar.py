@@ -46,7 +46,7 @@ class SAFSAR(nn.Module):
         self.debug_samples_counter = 0
 
         if gc:
-            self.garbage_prototype = torch.rand.random((1, 768)).cuda()
+            self.garbage_prototype = nn.Parameter(torch.rand.random((1, 768)).cuda())
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
@@ -102,6 +102,10 @@ class SAFSAR(nn.Module):
         else:
             support_mm_features = support_features_mean
 
+        # Add unknown class if GC
+        if self.gc:
+            support_mm_features = torch.cat((support_mm_features, self.garbage_prototype), dim=0)
+
         # Generate query prototypes
         if len(target_set.shape) == 4:  # n_q, seq_len, 224, 3, 224
             n_queries = int(target_set.shape[0] / self.seq_len)
@@ -146,9 +150,6 @@ class SAFSAR(nn.Module):
         similarity_matrix_k = similarity_matrix[known_indices]
         known_true_target_labels = true_target_labels[known_indices]
         # Compute L1 loss
-        # NO TARGET LABELS!
-        # ordering doesn't matter, we need to check where target labels is equal to support labels
-        # true_target_labels = torch.argsort(support_labels)[target_labels_k]
         l1_loss = torch.nn.functional.cross_entropy(similarity_matrix_k, known_true_target_labels)
 
         # Compute L2 loss
@@ -161,9 +162,6 @@ class SAFSAR(nn.Module):
             l2_loss = l2_loss_support + l2_loss_query
         else:
             l2_loss = 0. # We need to return something
-        # else:
-        #     l1_loss = None
-        #     l2_loss = None
 
         self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
                            "true_target_labels": wandb.Table(columns=[0], data=true_target_labels.detach().cpu().numpy()[..., None]),
@@ -179,10 +177,6 @@ class SAFSAR(nn.Module):
             similarity_matrix_k = similarity_matrix[known_indices]
             target_labels_k = target_labels[known_indices]
 
-            # NO TARGET LABELS!
-            # ordering doesn't matter, we need to check where target labels is equal to support labels
-            # INDEED
-            # support_labels = [2, 0, 1], target_labels = [0, 2, 1] means that [[0, 1, 0], [1, 0, 0], [0, 0, 1]] is the correct matrix
             true_target_labels = torch.argsort(support_labels)[target_labels_k].cuda()
             fs_acc = compute_accuracy(similarity_matrix_k, true_target_labels)
 

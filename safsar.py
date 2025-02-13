@@ -46,7 +46,11 @@ class SAFSAR(nn.Module):
         self.debug_samples_counter = 0
 
         if gc:
-            self.garbage_prototype = nn.Parameter(torch.rand.random((1, 768)).cuda())
+            self.garbage_prototype = nn.Parameter(torch.rand.random((1, 768))).cuda()
+        elif disc:
+            self.discriminator = BinaryClassificationModel(768).cuda()
+        self.gc = gc
+        self.disc = disc
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
@@ -131,6 +135,13 @@ class SAFSAR(nn.Module):
             support_mm_features_aug
         )
 
+        # If discriminator, use it
+        if self.disc:
+            all_prototypes_differences = query_features_aug.expand(-1, support_mm_features_aug.size(1), -1) - support_mm_features_aug
+            disc_prob = self.discriminator(similarity_matrix, all_prototypes_differences)
+        else:
+            disc_prob = None
+
         # Compute global logits
         if self.use_l2_loss:
             support_global_logits = self.global_classification_layer(support_features)
@@ -141,7 +152,8 @@ class SAFSAR(nn.Module):
 
         return {"similarity_matrix": similarity_matrix,
                 "support_global_logits": support_global_logits,
-                "query_global_logits": query_global_logits}
+                "query_global_logits": query_global_logits,
+                "disc_prob": disc_prob}
 
     def compute_known_losses(self, similarity_matrix, support_global_logits, query_global_logits,
                            true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None):

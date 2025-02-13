@@ -57,7 +57,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
             lr = 0.0001
             eval_after_steps = 20000
     elif model_name == "SAFSAR":
-        eval_after_steps = 30000
+        if data_name == "SSv2":
+            eval_after_steps = 35000
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
 

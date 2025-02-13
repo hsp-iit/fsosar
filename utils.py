@@ -302,51 +302,43 @@ def compute_aupr(targets, logits):
     
     return aupr
 
-
 def compute_oscr(targets, logits, os_score):
     targets = np.array(targets)
     logits = np.array(logits)
     os_score = np.array(os_score)
+
+    points = []
+
+    for thr in np.unique(os_score):
+        unknown_indices = targets == -1
+        fp = (os_score[unknown_indices] >= thr).sum()
+        fpr = fp / (fp+unknown_indices.sum())
+
+        known_indices = targets != -1
+        correctly_classified = np.argmax(logits, axis=-1)[known_indices] == targets[known_indices]
+        ccr = (correctly_classified & (os_score[known_indices] >= thr)).sum() / known_indices.sum()
+
+        points.append((fpr, ccr))
     
-    predicted = np.argmax(logits, axis=1)
-    
-    known_mask = (targets != -1)
-    unknown_mask = (targets == -1)
-    
-    known_total = np.sum(known_mask)
-    unknown_total = np.sum(unknown_mask)
-    
-    if known_total == 0 or unknown_total == 0:
-        return 0.0
-    
-    correct_known_mask = (predicted == targets) & known_mask
-    correct_known_os = os_score[correct_known_mask]
-    os_score_unknown = os_score[unknown_mask]
-    
-    cko_sorted = np.sort(correct_known_os)
-    osu_sorted = np.sort(os_score_unknown)
-    
-    thresholds = np.concatenate([correct_known_os, os_score_unknown, [1.0, 0.0]])
-    thresholds = np.unique(thresholds)
-    
-    max_osu = osu_sorted[-1] if unknown_total > 0 else 0.0
-    tau_prime = max_osu + 1e-9
-    thresholds = np.concatenate([thresholds, [tau_prime]])
-    thresholds = np.unique(thresholds)
-    thresholds.sort()  # Now sorted in ascending order
-    
-    prev_ccr = 0.0
-    prev_crr = 0.0
-    area = 0.0
-    
-    for tau in thresholds:
-        tp = len(correct_known_os) - np.searchsorted(cko_sorted, tau, side='right')
-        ccr = tp / known_total
-        
-        tn = np.searchsorted(osu_sorted, tau, side='right')
-        crr = tn / unknown_total
-        
-        area += (crr - prev_crr) * (prev_ccr + ccr) / 2.0
-        prev_ccr, prev_crr = ccr, crr
-    
-    return max(0.0, min(area, 1.0))
+    points = sorted(points, key=lambda x: x[0])
+    points = [(0, 0)] + points + [(1, 1)]
+    oscr = 0.0
+
+    for i in range(1, len(points)):
+        x1, y1 = points[i-1]
+        x2, y2 = points[i]
+        oscr += (x2-x1) * (y1+y2) / 2
+
+    return oscr
+
+
+if __name__ == "__main__":
+    targets = [0, 1, 2, -1, -1, -1]
+    logits = [[1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+              [1, 0, 0],
+              [1, 0, 0],
+              [1, 0, 0]]
+    os_score = [0.7, 0.9, 0.8, 0.2, 0.3, 0.4]
+    print(compute_oscr(targets, logits, os_score))

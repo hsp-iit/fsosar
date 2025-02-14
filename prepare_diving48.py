@@ -47,20 +47,25 @@ def load_json(json_file):
     return data
 
 if __name__ == '__main__':
-    train_split = "/home/steb6/datasets/Diving48/Diving48_train.json"
-    test_split = "/home/steb6/datasets/Diving48/Diving48_test.json"
-    data_path = "/home/steb6/datasets/Diving48/rgb"
-    dataset_path = "/home/steb6/datasets/Diving48"
+    train_split = "/home/sberti_datasets/Diving48/Diving48_V2_train.json"
+    test_split = "/home/sberti_datasets/Diving48/Diving48_V2_test.json"
+    data_path = "/home/sberti_datasets/Diving48/rgb"
+    dataset_path = "/home/sberti_datasets/Diving48"
+    class_labels = "/home/sberti_datasets/Diving48/class_labels.json"
 
     train_data = load_json(train_split)
     test_data = load_json(test_split)
+    class_labels = load_json(class_labels)
 
     id_to_class = {}
-
     for x in train_data:
         id_to_class[x['vid_name']] = x['label']
     for x in test_data:
         id_to_class[x['vid_name']] = x['label']
+
+    id_to_label = []
+    for c in class_labels:
+        id_to_label.append("_".join(c))
     
     total = len(id_to_class)
 
@@ -81,7 +86,7 @@ if __name__ == '__main__':
                     print(f"Error: Could not find label for {vid_name}")
                     continue
 
-                output_path = os.path.join(dataset_path, "images", str(label))
+                output_path = os.path.join(dataset_path, "images", id_to_label[label])
                 
                 if not os.path.exists(output_path):
                     os.makedirs(output_path)

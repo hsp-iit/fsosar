@@ -17,13 +17,13 @@ class OpenSetLoss(torch.nn.Module):
                           "gc": self.gc_loss}
         self.os_loss = self.os_loss[os_loss]
 
-    def gc_loss(self, logits, targets, similarity_matrix):
+    def gc_loss(self, logits, targets, similarity_matrix, rescale_function=None):
         return {"os_loss": None}
 
-    def softmax_loss(self, logits, targets, similarity_matrix):
+    def softmax_loss(self, logits, targets, similarity_matrix, rescale_function=None):
         return {"os_loss": None}
 
-    def discriminator_loss(self, logits, targets, similarity_matrix):
+    def discriminator_loss(self, logits, targets, similarity_matrix, rescale_function=None):
         os_scores = logits["disc_prob"]
         pred = similarity_matrix.max(dim=-1)[1]
         correct = pred == targets
@@ -46,7 +46,7 @@ class OpenSetLoss(torch.nn.Module):
             os_loss = None
         return {"os_loss": os_loss}
 
-    def eos_loss(self, logits, targets, similarity_matrix):
+    def eos_loss(self, logits, targets, similarity_matrix, rescale_function=None):
         """
         for known queries, it uses cross-entropy loss
         so here we define only the case for unknown queries
@@ -66,21 +66,22 @@ class OpenSetLoss(torch.nn.Module):
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
 
-    def objectosphere_loss(self, logits, targets, similarity_matrix):
+    def objectosphere_loss(self, logits, targets, similarity_matrix, rescale_function):
         """
         how to determine alpha and epsilon?
         we push unknown logits to -16 since exp(-16) = 0.0000001
         we push known logits to 0 since exp(-0) = 1
         we set alpha to 0.01 because this value balances closed-set loss magnitude
         """
-        epsilon = 4
+        epsilon = 1
         alpha = 0.01
 
         eos_loss = self.eos_loss(logits, targets, similarity_matrix)["unknown_loss"]
+        scaled_similarity_matrix = rescale_function(similarity_matrix)
         # # sphere
         unknown_indices = targets == -1
         if unknown_indices.sum() > 0:  # if > -32, push norm of diff of unknown feature to -32
-            unk_norms = similarity_matrix[unknown_indices]
+            unk_norms = scaled_similarity_matrix[unknown_indices]
             unk_norms = unk_norms.mean()
             unknown_sphere_loss = alpha*torch.maximum(unk_norms-epsilon, torch.tensor(0))
         else:
@@ -88,7 +89,7 @@ class OpenSetLoss(torch.nn.Module):
 
         known_indices = targets != -1
         if known_indices.sum() > 0:
-            known_norms = similarity_matrix[known_indices]
+            known_norms = scaled_similarity_matrix[known_indices]
             known_norms = known_norms.mean()
             known_sphere_loss = alpha*(-known_norms)
         else:
@@ -96,11 +97,8 @@ class OpenSetLoss(torch.nn.Module):
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": eos_loss, "unknown_sphere_loss": unknown_sphere_loss, "known_sphere_loss": known_sphere_loss}
 
-    def forward(self, logits, all_prototypes):
-        return self.os_function(logits, all_prototypes)
-
-    def loss(self, logits, targets, similarity_matrix):
-        return self.os_loss(logits, targets, similarity_matrix)
+    def loss(self, logits, targets, similarity_matrix, rescale_function):
+        return self.os_loss(logits, targets, similarity_matrix, rescale_function)
 
 
 class AverageMeter:

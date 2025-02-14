@@ -15,6 +15,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_oscr, compute_aupr
 import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
+import copy
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
@@ -63,14 +64,15 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["lr"] = lr
 
     # Data
+    data_config = copy.deepcopy(config)  # Fix config, since GC may change way later and its recreated later
     def setup_dataloader(train=True):
-        videodataset = VideoDataset(DataArgs(config), preprocessing=model_name)
+        videodataset = VideoDataset(DataArgs(data_config), preprocessing=model_name)
         videodataset.train = train
         if model_name == "STRM":
             train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
-            dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=config["num_workers"])
+            dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=data_config["num_workers"])
         elif model_name == "SAFSAR":
-            dataloader = DataLoader(videodataset, batch_size=1, num_workers=config["num_workers"])
+            dataloader = DataLoader(videodataset, batch_size=1, num_workers=data_config["num_workers"])
         return dataloader, videodataset
     dataloader, videodataset = setup_dataloader()
     config["classes_names"] = videodataset.class_folders
@@ -171,7 +173,14 @@ def main(rank, world_size, model_name, data_name, os_loss):
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
-                unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix)
+                if os_loss == "gc":
+                    if model_name == "SAFSAR":
+                        rescale_function = lambda x: (x+1)/2
+                    if model_name == "STRM":
+                        rescale_function = torch.exp
+                else:
+                    rescale_function = None
+                unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix, rescale_function)
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
@@ -195,9 +204,6 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Compute metrics
             if known_indices.sum() > 0:
-                # NOTE: strm sorts the support classes, while safsar does not
-                # So for safsar we need to use true_target_labels, while for
-                # STRM we need to use plain target labels
                 # Here we define scaled similarity matrix, that are score normalized in [0, 1] depending on method
                 scaled_similarity_matrix = None
                 if model_name == "STRM":

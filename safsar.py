@@ -46,7 +46,7 @@ class SAFSAR(nn.Module):
         self.debug_samples_counter = 0
 
         if gc:
-            self.garbage_prototype = nn.Parameter(torch.rand.random((1, 768))).cuda()
+            self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
         elif disc:
             self.discriminator = BinaryClassificationModel(768).cuda()
         self.gc = gc
@@ -86,7 +86,7 @@ class SAFSAR(nn.Module):
     def forward(self, support_set, support_labels, target_set, batch_class_list=None, precomputed_context_features=None):
 
         # Generate support set prototypes
-        support_set = support_set.reshape(self.way*self.shot, self.seq_len, 224, 3, 224)
+        support_set = support_set.reshape(-1, self.seq_len, 224, 3, 224)
         support_set = support_set.permute(0, 1, 3, 4, 2)
         if self.seq_len == 8:
             inputs = {"pixel_values": support_set.repeat_interleave(2, dim=1).cuda()}
@@ -156,7 +156,7 @@ class SAFSAR(nn.Module):
                 "disc_prob": disc_prob}
 
     def compute_known_losses(self, similarity_matrix, support_global_logits, query_global_logits,
-                           true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None):
+                           true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None, disc_prob=None):
         true_target_labels = target_labels  # if ordered in model. this is is the best way
         known_indices = true_target_labels != -1
         similarity_matrix_k = similarity_matrix[known_indices]
@@ -167,6 +167,8 @@ class SAFSAR(nn.Module):
         # Compute L2 loss
         if self.use_l2_loss:
             global_support_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
+            if self.gc:  # here we need to get rid of the garbage class
+                known_indices = target_labels != (self.way-1)
             global_query_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[target_labels[known_indices]]]).cuda()
             # Make support label one hot to apply them correctly
             l2_loss_support = torch.nn.functional.cross_entropy(support_global_logits, global_support_labels)
@@ -176,14 +178,14 @@ class SAFSAR(nn.Module):
             l2_loss = 0. # We need to return something
 
         self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
-                           "true_target_labels": wandb.Table(columns=[0], data=true_target_labels.detach().cpu().numpy()[..., None]),
+                           "true_target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None]),
                            "similarity_matrix_mean": similarity_matrix.mean().item()}
         return {"l1_loss": l1_loss, "l2_loss": self.alpha*l2_loss}
 
     def get_debug_data(self):
         return self.debug_data
 
-    def compute_additional_metrics(self, similarity_matrix, support_global_logits, query_global_logits, support_labels, target_labels, batch_class_list):
+    def compute_additional_metrics(self, similarity_matrix, support_global_logits, query_global_logits, support_labels, target_labels, batch_class_list, disc_prob=None):
         known_indices = target_labels != -1
         if known_indices.sum() > 0:
             similarity_matrix_k = similarity_matrix[known_indices]

@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import torchvision.models as models
 from sklearn.metrics import roc_auc_score
 import wandb
+from utils import BinaryClassificationModelSTRM
 
 
 NUM_SAMPLES=1
@@ -439,30 +440,7 @@ class MLP_Mix_Enrich(nn.Module):
         out = self.Bot_MLP(out) + residual2 # B x 8 x 2048
 
         return out
-
-class BinaryClassificationModel(nn.Module):
-    def __init__(self, input_dim):
-        super(BinaryClassificationModel, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 512)
-        self.act1 = nn.ReLU()
-        self.fc2 = nn.Linear(512, 128)
-        self.act2 = nn.ReLU()
-        self.fc3 = nn.Linear(128, 64)
-        self.act3 = nn.ReLU()
-        self.fc4 = nn.Linear(1792, 1)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):  # Shape is 40, 28, 1152
-        b, nc, d = x.size()  # 40, 28, 1152
-        x = x.reshape(b*nc, d)  # 40X28, 1152
-        x = self.act1(self.fc1(x))  # Shape is 40X28, 512
-        x = self.act2(self.fc2(x))  # Shape is 40X28, 128
-        x = self.act3(self.fc3(x))  # Shape is 40X28, 64
-        x = x.reshape(b, -1)  # Shape is 40, 28*64
-        x = self.fc4(x)  # Shape is 1
-        x = self.sigmoid(x)
-        return x
-
+        
 
 class STRM(nn.Module):
     """
@@ -507,7 +485,7 @@ class STRM(nn.Module):
         if gc:
             self.garbage_support = nn.Parameter(torch.randn(1, self.args["seq_len"], self.args["trans_linear_in_dim"]), requires_grad=True).cuda()
         elif disc:
-            self.discriminator = BinaryClassificationModel(1792).cuda()
+            self.discriminator = BinaryClassificationModelSTRM(1792).cuda()
         self.gc = gc
         self.disc = disc
 

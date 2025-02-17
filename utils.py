@@ -6,6 +6,7 @@ import random
 import numpy as np
 import socket
 from sklearn.metrics import roc_auc_score, precision_recall_curve
+import torch.nn as nn
 
 class OpenSetLoss(torch.nn.Module):
     def __init__(self, os_loss):
@@ -204,7 +205,52 @@ def load_configs(model_name, data_name):
     model_config.update(data_config)
     model_config.update(train_config)
     model_config["host"] = host
+    model_config["log_path"] = log_path
     return model_config
+
+
+class BinaryClassificationModelSAFSAR(nn.Module):
+    def __init__(self, input_dim):
+        super(BinaryClassificationModelSAFSAR, self).__init__()
+        self.fc1 = nn.Linear(input_dim, input_dim*2)
+        self.act1 = nn.ReLU()
+        self.fc2 = nn.Linear(input_dim*2, input_dim)
+        self.act2 = nn.ReLU()
+        self.fc3 = nn.Linear(input_dim, 64)
+        self.act3 = nn.ReLU()
+        self.fc4 = nn.Linear(64, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):  # Shape is 40, 28, 1152
+        x = self.act1(self.fc1(x))  # Shape is 40X28, 512
+        x = self.act2(self.fc2(x))  # Shape is 40X28, 128
+        x = self.act3(self.fc3(x))  # Shape is 40X28, 64
+        x = self.sigmoid(self.fc4(x))
+        return x
+
+
+class BinaryClassificationModelSTRM(nn.Module):
+    def __init__(self, input_dim):
+        super(BinaryClassificationModelSTRM, self).__init__()
+        self.fc1 = nn.Linear(input_dim, 512)
+        self.act1 = nn.ReLU()
+        self.fc2 = nn.Linear(512, 128)
+        self.act2 = nn.ReLU()
+        self.fc3 = nn.Linear(128, 64)
+        self.act3 = nn.ReLU()
+        self.fc4 = nn.Linear(1792, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):  # Shape is 40, 28, 1152
+        b, nc, d = x.size()  # 40, 28, 1152
+        x = x.reshape(b*nc, d)  # 40X28, 1152
+        x = self.act1(self.fc1(x))  # Shape is 40X28, 512
+        x = self.act2(self.fc2(x))  # Shape is 40X28, 128
+        x = self.act3(self.fc3(x))  # Shape is 40X28, 64
+        x = x.reshape(b, -1)  # Shape is 40, 28*64
+        x = self.fc4(x)  # Shape is 1
+        x = self.sigmoid(x)
+        return x
 
 
 class DataArgs:

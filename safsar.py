@@ -5,7 +5,7 @@ from transformers import AutoImageProcessor, AutoModelForVideoClassification, Be
 from utils import compute_accuracy, OpenSetLoss
 import wandb
 import numpy as np
-
+from utils import BinaryClassificationModelSAFSAR
 
 class SAFSAR(nn.Module):
     def __init__(self, config, disc=None, gc=None):
@@ -48,7 +48,7 @@ class SAFSAR(nn.Module):
         if gc:
             self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
         elif disc:
-            self.discriminator = BinaryClassificationModel(768).cuda()
+            self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
         self.gc = gc
         self.disc = disc
 
@@ -138,7 +138,9 @@ class SAFSAR(nn.Module):
         # If discriminator, use it
         if self.disc:
             all_prototypes_differences = query_features_aug.expand(-1, support_mm_features_aug.size(1), -1) - support_mm_features_aug
-            disc_prob = self.discriminator(similarity_matrix, all_prototypes_differences)
+            predictions = torch.argmax(similarity_matrix, dim=-1)
+            best_diffs = all_prototypes_differences[torch.arange(10), predictions]
+            disc_prob = self.discriminator(best_diffs)
         else:
             disc_prob = None
 

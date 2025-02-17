@@ -179,14 +179,17 @@ def load_configs(model_name, data_name):
         local_or_server = "local"
         datasets_path = "/home/steb6/datasets"
         host = "local"
+        log_path = "."
     elif "iit.local" in cwd:
         local_or_server = "server"
         datasets_path = "/home/sberti_datasets"
         host = "gnode04"
+        log_path = "."
     elif "sberti" in cwd:
         local_or_server = "server"
         datasets_path = "/work/sberti"
         host = "franklin"
+        log_path = "/work/sberti"
         
     model_config_path = f"configs/{model_name}.json"
     data_config_path = f"configs/{data_name}.json"

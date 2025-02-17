@@ -9,4 +9,4 @@
 source /home/sberti/.bashrc
 conda activate fsosar
 cd /home/sberti/fsosar
-python train.py --model SAFSAR --data SSv2 --os_loss softmax
+python train.py --model SAFSAR --data HMDB51 --os_loss softmax

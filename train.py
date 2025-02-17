@@ -22,7 +22,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
     parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
-    parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving44"], help='Data name')
+    parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving48"], help='Data name')
     parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "objectosphere", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
 

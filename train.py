@@ -61,9 +61,10 @@ def main(rank, world_size, model_name, data_name, os_loss):
         if data_name == "SSv2":
             eval_after_steps = 35000
             lr = 4e-6
-        elif data_name == "UCF101": # cant get improvements on this dataset
-            eval_after_steps = 100
-            lr = 4e-7
+        # elif data_name == "UCF101": # cant get improvements on this dataset
+        #     eval_after_steps = 100
+        #     lr = 4e-7
+        
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
 

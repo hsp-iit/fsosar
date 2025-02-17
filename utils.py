@@ -40,8 +40,6 @@ class OpenSetLoss(torch.nn.Module):
             os_scores = os_scores[all_indices].squeeze(1)
             # os_labels = torch.ones_like(os_labels)  # TODO REMOVE DEBUG
             os_loss = torch.nn.functional.binary_cross_entropy(os_scores, os_labels)
-            print(os_scores)
-            print(os_labels)
             os_loss = os_loss * 1000
         else:
             os_loss = None

@@ -10,6 +10,8 @@ import io
 from videotransforms.video_transforms import Compose, Resize, RandomCrop, RandomRotation, ColorJitter, RandomHorizontalFlip, CenterCrop, TenCrop
 import pickle
 from transformers import AutoImageProcessor
+import copy
+import json
 
 
 """Contains video frame paths and ground truth labels for a single split (e.g. train videos). """
@@ -83,6 +85,16 @@ class VideoDataset(torch.utils.data.Dataset):
             self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
             self.transform["train"] = self.custom_transform
             self.transform["test"] = self.custom_transform
+
+        # Get complex names if they exists
+        if os.path.exists(os.path.join(self.annotation_path, "classes_label_defn.json")):
+            with open(os.path.join(self.annotation_path, "classes_label_defn.json"), 'r') as f:
+                self.complex_classes_descriptions = json.load(f)
+            for raw_label, complex_label in zip(self.class_folders, self.complex_classes_descriptions):
+                assert raw_label.replace("_", "").replace(" ", "").lower() == complex_label["word"].replace("_", "").replace(" ", "").lower()
+            self.complex_classes_descriptions = [x["cleaned_defn"] for x in self.complex_classes_descriptions]
+        else:
+            self.complex_classes_descriptions = copy.deepcopy(self.class_folders)  # if they not exists, use folder name
 
     def custom_transform(self, x):
         return [x for x in self.processor(x)["pixel_values"][0]]  # swapaxes(0, 2)

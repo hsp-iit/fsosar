@@ -62,7 +62,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             eval_after_steps = 35000
             lr = 4e-6
         elif data_name == "UCF101": # cant get improvements on this dataset
-            eval_after_steps = 10000
+            eval_after_steps = 100
             lr = 4e-7
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
@@ -79,7 +79,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             dataloader = DataLoader(videodataset, batch_size=1, num_workers=data_config["num_workers"])
         return dataloader, videodataset
     dataloader, videodataset = setup_dataloader()
-    config["classes_names"] = videodataset.class_folders
+    config["classes_names"] = videodataset.complex_classes_descriptions
     config["n_train_classes"] = len(set(videodataset.train_split.gt_a_list))
     config["train_unique_classes"] = videodataset.train_split.get_unique_classes()
 

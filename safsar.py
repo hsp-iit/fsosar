@@ -139,7 +139,7 @@ class SAFSAR(nn.Module):
         if self.disc:
             all_prototypes_differences = query_features_aug.expand(-1, support_mm_features_aug.size(1), -1) - support_mm_features_aug
             predictions = torch.argmax(similarity_matrix, dim=-1)
-            best_diffs = all_prototypes_differences[torch.arange(10), predictions]
+            best_diffs = all_prototypes_differences[torch.arange(len(all_prototypes_differences)), predictions]
             disc_prob = self.discriminator(best_diffs)
         else:
             disc_prob = None

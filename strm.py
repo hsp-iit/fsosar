@@ -485,7 +485,7 @@ class STRM(nn.Module):
         if gc:
             self.garbage_support = nn.Parameter(torch.randn(1, self.args["seq_len"], self.args["trans_linear_in_dim"]), requires_grad=True).cuda()
         elif disc:
-            self.discriminator = BinaryClassificationModelSTRM(1792).cuda()
+            self.discriminator = BinaryClassificationModelSTRM(1152).cuda()
         self.gc = gc
         self.disc = disc
 
@@ -569,7 +569,9 @@ class STRM(nn.Module):
         logits = split_first_dim_linear(sample_logits_fr, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0)
         all_prototypes = torch.stack(all_prototypes).squeeze(0)
         if self.disc:
-            disc_prob = self.discriminator(logits, all_prototypes)
+            predictions = torch.argmax(logits, dim=-1)
+            best_diffs = all_prototypes[torch.arange(all_prototypes.shape[0]), predictions]
+            disc_prob = self.discriminator(best_diffs)
         else:
             disc_prob = None
 

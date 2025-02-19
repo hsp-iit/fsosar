@@ -47,6 +47,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     log_train_after_steps = config["log_train_after_steps"]
     eval_after_steps = config["eval_after_steps"]
     log_wandb = config["log_wandb"]
+    freeze_ff = False
     if model_name == "STRM":
         if data_name == "SSv2":
             if os_loss == "gc":
@@ -57,13 +58,14 @@ def main(rank, world_size, model_name, data_name, os_loss):
         elif data_name == "HMDB51" or data_name == "UCF101":
             lr = 0.0001
             eval_after_steps = 20000
+        elif data_name == "Diving48":
+            lr = 0.0001
     elif model_name == "SAFSAR":
         if data_name == "SSv2":
             eval_after_steps = 35000
             lr = 4e-6
-        # elif data_name == "UCF101": # cant get improvements on this dataset
-        #     eval_after_steps = 100
-        #     lr = 4e-7
+        elif data_name == "UCF101" or data_name == "HMDB51":  # dataset too easy, freeze feature extractor
+            freeze_ff = True
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
@@ -89,7 +91,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
         config["way"] += 1
     model = getattr(importlib.import_module(model_name.lower()), model_name)(config,
                                                                              disc=os_loss=="discriminator",
-                                                                             gc=os_loss=="gc")
+                                                                             gc=os_loss=="gc",
+                                                                             freeze_ff=freeze_ff)
     os_loss_function = OpenSetLoss(os_loss)
 
     # Set up model
@@ -108,6 +111,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
         wandb.watch(model, log="all")
 
     # Define optimizer and scheduler depending on the model
+    model_param = filter(lambda p: p.requires_grad, model.parameters())
     if model_name == "SAFSAR":
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         scheduler = None

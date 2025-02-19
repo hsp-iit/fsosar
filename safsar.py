@@ -8,7 +8,7 @@ import numpy as np
 from utils import BinaryClassificationModelSAFSAR
 
 class SAFSAR(nn.Module):
-    def __init__(self, config, disc=None, gc=None):
+    def __init__(self, config, disc=None, gc=None, freeze_ff=None):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(config["processor_name"])
         self.model = AutoModelForVideoClassification.from_pretrained(config["mm_model_name"], output_hidden_states=True)
@@ -51,6 +51,10 @@ class SAFSAR(nn.Module):
             self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
         self.gc = gc
         self.disc = disc
+
+        if freeze_ff:
+            for param in self.model.parameters():
+                param.requires_grad = False
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):

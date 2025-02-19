@@ -448,7 +448,7 @@ class STRM(nn.Module):
         Similarity Loss and Patch-level and Frame-level Attention Blocks.
     """
 
-    def __init__(self, args, disc, gc):
+    def __init__(self, args, disc, gc, freeze_ff):
         super(STRM, self).__init__()
 
         self.train()

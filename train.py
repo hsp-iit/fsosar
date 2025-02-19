@@ -113,10 +113,10 @@ def main(rank, world_size, model_name, data_name, os_loss):
     # Define optimizer and scheduler depending on the model
     model_param = filter(lambda p: p.requires_grad, model.parameters())
     if model_name == "SAFSAR":
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(model_param, lr=lr)
         scheduler = None
     elif model_name == "STRM":
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+        optimizer = torch.optim.SGD(model_param, lr=lr)
         scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
     else:
         raise Exception("Wrong model name")

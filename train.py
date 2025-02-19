@@ -38,7 +38,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     # Create directory for saving checkpoints
     if rank == 0:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        checkpoint_path = f"{model_name}_{os_loss}_{data_name}_{timestamp}"
+        checkpoint_path = f"{config['way']}_{model_name}_{os_loss}_{data_name}_{timestamp}"
         checkpoint_dir = os.path.join(config["log_path"], "logs", checkpoint_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
 

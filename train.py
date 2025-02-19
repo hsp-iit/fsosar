@@ -66,7 +66,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
             lr = 4e-6
         elif data_name == "UCF101" or data_name == "HMDB51":  # dataset too easy, freeze feature extractor
             if os_loss == "softmax" or os_loss == "eos":  # no problems for disc and gc
-                freeze_ff = True
+                eval_after_steps = 1000
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr

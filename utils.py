@@ -40,7 +40,6 @@ class OpenSetLoss(torch.nn.Module):
             os_scores = os_scores[all_indices].squeeze(1)
             # os_labels = torch.ones_like(os_labels)  # TODO REMOVE DEBUG
             os_loss = torch.nn.functional.binary_cross_entropy(os_scores, os_labels)
-            os_loss = os_loss * 1000
         else:
             os_loss = None
         return {"os_loss": os_loss}
@@ -230,25 +229,47 @@ class BinaryClassificationModelSAFSAR(nn.Module):
 class BinaryClassificationModelSTRM(nn.Module):
     def __init__(self, input_dim):
         super(BinaryClassificationModelSTRM, self).__init__()
+        # Feature extraction layers (per frame)
         self.fc1 = nn.Linear(input_dim, 512)
+        self.bn1 = nn.BatchNorm1d(512)
         self.act1 = nn.ReLU()
-        self.fc2 = nn.Linear(512, 128)
+        self.drop1 = nn.Dropout(0.3)
+        
+        self.fc2 = nn.Linear(512, 256)
+        self.bn2 = nn.BatchNorm1d(256)
         self.act2 = nn.ReLU()
-        self.fc3 = nn.Linear(128, 64)
+        self.drop2 = nn.Dropout(0.3)
+        
+        self.fc3 = nn.Linear(256, 128)
+        self.bn3 = nn.BatchNorm1d(128)
         self.act3 = nn.ReLU()
-        self.fc4 = nn.Linear(1792, 1)
+        self.drop3 = nn.Dropout(0.3)
+        
+        # Aggregation and classification layers
+        self.fc4 = nn.Linear(128, 64)
+        self.act4 = nn.ReLU()
+        self.fc5 = nn.Linear(64 * 28, 1)  # 28 elements * 64 features
+        
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):  # Shape is 40, 28, 1152
-        b, nc, d = x.size()  # 40, 28, 1152
-        x = x.reshape(b*nc, d)  # 40X28, 1152
-        x = self.act1(self.fc1(x))  # Shape is 40X28, 512
-        x = self.act2(self.fc2(x))  # Shape is 40X28, 128
-        x = self.act3(self.fc3(x))  # Shape is 40X28, 64
-        x = x.reshape(b, -1)  # Shape is 40, 28*64
-        x = self.fc4(x)  # Shape is 1
-        x = self.sigmoid(x)
-        return x
+    def forward(self, x):
+        # Input shape: (batch_size, num_frames, features) = (40, 28, 1152)
+        batch_size, num_frames, feat_dim = x.shape
+        
+        # Process each frame independently
+        x = x.view(-1, feat_dim)  # Flatten to (40*28, 1152)
+        
+        x = self.drop1(self.act1(self.bn1(self.fc1(x))))
+        x = self.drop2(self.act2(self.bn2(self.fc2(x))))
+        x = self.drop3(self.act3(self.bn3(self.fc3(x))))
+        
+        # Additional processing per frame
+        x = self.act4(self.fc4(x))  # (40*28, 64)
+        
+        # Reshape and aggregate
+        x = x.view(batch_size, num_frames * 64)  # (40, 28*64)
+        x = self.fc5(x)
+        return self.sigmoid(x)
 
 
 class DataArgs:

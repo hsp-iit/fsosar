@@ -38,7 +38,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     # Create directory for saving checkpoints
     if rank == 0:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        checkpoint_path = f"{config['way']}_{model_name}_{os_loss}_{data_name}_{timestamp}"
+        checkpoint_path = f"{config['shot']}_{model_name}_{os_loss}_{data_name}_{timestamp}"
         checkpoint_dir = os.path.join(config["log_path"], "logs", checkpoint_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -191,6 +191,12 @@ def main(rank, world_size, model_name, data_name, os_loss):
                 else:
                     rescale_function = None
                 unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix, rescale_function)
+                if os_loss == "discriminator":
+                    if unknown_losses["os_loss"] is not None:
+                        if model_name == "SAFSAR":
+                            unknown_losses["os_loss"] = unknown_losses["os_loss"]*1000  # this makes safsar disc work
+                        else:
+                            unknown_losses["os_loss"] = unknown_losses["os_loss"]*10
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:

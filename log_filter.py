@@ -3,7 +3,7 @@ import os
 import time
 
 # Set your target directory here
-TARGET_DIR = "/path/to/target/directory"
+TARGET_DIR = "/work/sberti/logs/"
 
 def clean_directories(target_dir):
     # Iterate over each entry in the target directory
@@ -22,7 +22,7 @@ def clean_directories(target_dir):
                 for file_path in files:
                     if file_path != newest_file:
                         try:
-                            # os.remove(file_path)
+                            os.remove(file_path)
                             print(f"Removed: {file_path}")
                         except Exception as e:
                             print(f"Error removing {file_path}: {e}")

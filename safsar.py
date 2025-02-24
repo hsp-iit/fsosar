@@ -8,7 +8,7 @@ import numpy as np
 from utils import BinaryClassificationModelSAFSAR
 
 class SAFSAR(nn.Module):
-    def __init__(self, config, disc=None, gc=None, freeze_ff=None):
+    def __init__(self, config, disc=None, gc=None, freeze_ff=None, ddp=None):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(config["processor_name"])
         self.model = AutoModelForVideoClassification.from_pretrained(config["mm_model_name"], output_hidden_states=True)
@@ -16,7 +16,9 @@ class SAFSAR(nn.Module):
         for param in self.model.videomae.embeddings.parameters():
             param.requires_grad = False
         # Distribute feature extractor for 5-shot training
-        self.model = torch.nn.DataParallel(self.model)
+        if not ddp:
+            self.model = torch.nn.DataParallel(self.model)
+            self.model = self.model.module
         self.way = config["way"]
         self.shot = config["shot"]
         self.seq_len = config["seq_len"]
@@ -96,7 +98,7 @@ class SAFSAR(nn.Module):
             inputs = {"pixel_values": support_set.repeat_interleave(2, dim=1).cuda()}
         outputs = self.model(**inputs)
         support_features = outputs.hidden_states[-1].mean(dim=1)
-        support_features = self.model.module.fc_norm(support_features)
+        support_features = self.model.fc_norm(support_features)
         support_features_mean = []
         for c in support_labels.unique():
             support_features_mean.append(support_features[support_labels == c].mean(dim=0))
@@ -126,7 +128,7 @@ class SAFSAR(nn.Module):
         inputs['pixel_values'] = inputs['pixel_values'].cuda()
         outputs = self.model(**inputs)
         query_features = outputs.hidden_states[-1].mean(dim=1)
-        query_features = self.model.module.fc_norm(query_features)
+        query_features = self.model.fc_norm(query_features)
 
         # Repeat embeddings for each query
         support_mm_features = support_mm_features.unsqueeze(0).repeat(n_queries, 1, 1)

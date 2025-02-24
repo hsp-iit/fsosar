@@ -153,8 +153,11 @@ def setup(rank, world_size, set_seeds):
     ports = [12355, 12356, 12357, 12358, 12359]
     for port in ports:
         if not is_address_in_use('localhost', port):
+            print("chosen", port)
             os.environ['MASTER_PORT'] = str(port)
             break
+        # else:
+        #     raise Exception("No free ports for multiprocessing")
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
     # Set seed for pytorch for reproducibility

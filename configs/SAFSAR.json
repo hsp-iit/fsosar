@@ -13,7 +13,7 @@
     "lr": 4e-6,
     "query_per_class": 1,
     "optimize_every": 1,
-    "maximum_queries": 10,
+    "maximum_queries": 5,
 
     "eval_after_steps": 2000
 }

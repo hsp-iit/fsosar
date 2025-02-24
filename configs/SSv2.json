@@ -4,7 +4,7 @@
     "seq_len": 8,
     "img_size": 224,
     "way": 5,
-    "shot": 5,
+    "shot": 1,
     "split": 7,
     "debug_loader": false,
     "query_per_class_test": 1,

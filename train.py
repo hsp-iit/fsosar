@@ -32,9 +32,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["model_name"] = model_name
     config["data_name"] = data_name
     config["os_loss"] = os_loss
-    if True:  # model_name == "STRM"  # When training more models on more GPU on a single machine, DDP is needed for performance
+    if config["ddp"]:  # When training more models on more GPU on a single machine, DDP is needed for performance
         setup(rank, world_size, set_seeds=config["eval_only"])
-
     # Create directory for saving checkpoints
     if rank == 0:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -63,7 +62,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     elif model_name == "SAFSAR":
         if data_name == "SSv2":
             # eval_after_steps = 35000
-            lr = 1e-7
+            lr = 4e-6
         #elif data_name == "UCF101" or data_name == "HMDB51":  # dataset too easy, freeze feature extractor
          #   if os_loss == "softmax" or os_loss == "eos":  # no problems for disc and gc
           #xy      eval_after_steps = 1000
@@ -76,7 +75,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     def setup_dataloader(train=True):
         videodataset = VideoDataset(DataArgs(data_config), preprocessing=model_name)
         videodataset.train = train
-        if True:  # model_name == "STRM"
+        if config["ddp"]:
             train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
             dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=data_config["num_workers"])
         elif model_name == "SAFSAR":
@@ -93,7 +92,8 @@ def main(rank, world_size, model_name, data_name, os_loss):
     model = getattr(importlib.import_module(model_name.lower()), model_name)(config,
                                                                              disc=os_loss=="discriminator",
                                                                              gc=os_loss=="gc",
-                                                                             freeze_ff=freeze_ff)
+                                                                             freeze_ff=freeze_ff,
+                                                                             ddp=config["ddp"])
     os_loss_function = OpenSetLoss(os_loss)
 
     # Set up model
@@ -359,7 +359,8 @@ if __name__ == "__main__":
     world_size = torch.cuda.device_count()
     # NOTE to train STRM, we do 4 training on 4 GPUs, this works better with DDP
     # for SAFSAR we use dataparallel for the feature extractor
-    if True:  # model_name == "STRM"
+    config = load_configs("SAFSAR", "SSv2")
+    if config["ddp"]:
         torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)
-    # elif model_name == "SAFSAR":
-    #     main(0, world_size, model_name, data_name, os_loss)
+    else:
+        main(0, world_size, model_name, data_name, os_loss)

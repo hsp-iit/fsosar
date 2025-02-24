@@ -32,7 +32,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     config["model_name"] = model_name
     config["data_name"] = data_name
     config["os_loss"] = os_loss
-    if model_name == "STRM":  # When training more models on more GPU on a single machine, DDP is needed for performance
+    if True:  # model_name == "STRM"  # When training more models on more GPU on a single machine, DDP is needed for performance
         setup(rank, world_size, set_seeds=config["eval_only"])
 
     # Create directory for saving checkpoints
@@ -76,7 +76,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
     def setup_dataloader(train=True):
         videodataset = VideoDataset(DataArgs(data_config), preprocessing=model_name)
         videodataset.train = train
-        if model_name == "STRM":
+        if True:  # model_name == "STRM"
             train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
             dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=data_config["num_workers"])
         elif model_name == "SAFSAR":
@@ -98,7 +98,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
     # Set up model
     model.to(rank)
-    if model_name == "STRM":
+    if True:  # model_name == "STRM"
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
         model = model.module
     model.set_train()
@@ -289,7 +289,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
-                if model_name == "STRM":
+                if True:  # model_name == "STRM"
                     dist.barrier()
                 if rank == 0:
                     progress_bar.close()
@@ -308,7 +308,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Disable evaluation
             if not training and step == config["n_eval_steps"]:
-                if model_name == "STRM":
+                if True:  # model_name == "STRM"
                     dist.barrier()
                 model.set_train()
                 model.train()
@@ -359,7 +359,7 @@ if __name__ == "__main__":
     world_size = torch.cuda.device_count()
     # NOTE to train STRM, we do 4 training on 4 GPUs, this works better with DDP
     # for SAFSAR we use dataparallel for the feature extractor
-    if model_name == "STRM":
+    if True:  # model_name == "STRM"
         torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)
-    elif model_name == "SAFSAR":
-        main(0, world_size, model_name, data_name, os_loss)
+    # elif model_name == "SAFSAR":
+    #     main(0, world_size, model_name, data_name, os_loss)

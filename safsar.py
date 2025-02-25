@@ -54,10 +54,6 @@ class SAFSAR(nn.Module):
         self.gc = gc
         self.disc = disc
 
-        if freeze_ff:
-            for param in self.model.parameters():
-                param.requires_grad = False
-
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
         self.use_l2_loss = True

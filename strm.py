@@ -448,7 +448,7 @@ class STRM(nn.Module):
         Similarity Loss and Patch-level and Frame-level Attention Blocks.
     """
 
-    def __init__(self, args, disc, gc, freeze_ff):
+    def __init__(self, args, disc=None, gc=None, dp=None):
         super(STRM, self).__init__()
 
         self.train()
@@ -464,6 +464,8 @@ class STRM(nn.Module):
 
         last_layer_idx = -2
         self.resnet = nn.Sequential(*list(resnet.children())[:last_layer_idx])
+        if dp:
+            self.resnet = nn.DataParallel(self.resnet)
         self.num_patches = 16
 
         self.adap_max = nn.AdaptiveMaxPool2d((4, 4))

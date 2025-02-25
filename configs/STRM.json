@@ -8,6 +8,10 @@
     "temp_set": [2],
     "query_per_class": 4,
     "optimize_every": 16,
-    "maximum_queries": 16,
-    "use_cosine_sim": false
+    "maximum_queries": 1000000,
+    "use_cosine_sim": false,
+    "num_workers": 10,
+    "ddp": false,
+    "dp": true,
+    "shot": 5
 }

@@ -47,7 +47,6 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     log_train_after_steps = config["log_train_after_steps"]
     eval_after_steps = config["eval_after_steps"]
     log_wandb = config["log_wandb"]
-    freeze_ff = False
     if model_name == "STRM":
         if data_name == "SSv2":
             if os_loss == "gc":
@@ -60,6 +59,11 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             eval_after_steps = 20000
         elif data_name == "Diving48":
             lr = 0.0001
+    elif model_name == "SAFSAR":
+        if data_name == "SSv2":
+            lr = 4e-6
+        elif data_name in ["HMDB51", "UCF101"]:
+            lr = 1e-7
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
@@ -86,7 +90,6 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     model = getattr(importlib.import_module(model_name.lower()), model_name)(config,
                                                                              disc=os_loss=="discriminator",
                                                                              gc=os_loss=="gc",
-                                                                             freeze_ff=freeze_ff,
                                                                              dp=config["dp"])
     os_loss_function = OpenSetLoss(os_loss)
 
@@ -214,6 +217,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
 
             # Compute metrics
             if known_indices.sum() > 0:
+                if model_name == "STRM":
+                    similarity_matrix = similarity_matrix + 0.1*logits["logits_post_pat"]
                 # Here we define scaled similarity matrix, that are score normalized in [0, 1] depending on method
                 scaled_similarity_matrix = None
                 if model_name == "STRM":
@@ -351,7 +356,7 @@ if __name__ == "__main__":
     os_loss = args.os_loss
     world_size = torch.cuda.device_count()
     # NOTE ddp is useful to isolate 4 models on 4 GPUs on same machine
-    config = load_configs("SAFSAR", "SSv2")
+    config = load_configs(model_name, data_name)
     if config["ddp"]:
         # To deal with possibly multiple training on one machine
         ports = [12355, 12356, 12357, 12358, 12359]

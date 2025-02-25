@@ -8,7 +8,7 @@ import numpy as np
 from utils import BinaryClassificationModelSAFSAR
 
 class SAFSAR(nn.Module):
-    def __init__(self, config, disc=None, gc=None, freeze_ff=None, dp=None):
+    def __init__(self, config, disc=None, gc=None, dp=None):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(config["processor_name"])
         self.model = AutoModelForVideoClassification.from_pretrained(config["mm_model_name"], output_hidden_states=True)

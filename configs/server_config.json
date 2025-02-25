@@ -8,11 +8,8 @@
     "eval_after_steps": 1000,
     "exit_after_eval": false,
     "way": 5,
-    "shot": 1,
-    "ddp": true,
-    "dp": false,
+    "shot": 5,
     "seq_len": 8,
-    "num_workers": 4,
     "debug_loader": false,
     "query_per_class_test": 1
 }

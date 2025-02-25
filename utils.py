@@ -147,17 +147,10 @@ def is_address_in_use(ip, port):
     return False
 
 
-def setup(rank, world_size, set_seeds):
+def setup(rank, world_size, set_seeds, port):
     os.environ['MASTER_ADDR'] = 'localhost'
-    # To deal with multiple training on one machine
-    ports = [12355, 12356, 12357, 12358, 12359]
-    for port in ports:
-        if not is_address_in_use('localhost', port):
-            print("chosen", port)
-            os.environ['MASTER_PORT'] = str(port)
-            break
-        # else:
-        #     raise Exception("No free ports for multiprocessing")
+    os.environ['MASTER_PORT'] = str(port)
+
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
     # Set seed for pytorch for reproducibility

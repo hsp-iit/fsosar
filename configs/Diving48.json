@@ -1,13 +1,7 @@
 {
     "path": "Diving48/images",
     "traintestlist": "splits/diving",
-    "seq_len": 8,
     "img_size": 224,
-    "way": 5,
-    "shot": 5,
     "split": 7,
-    "debug_loader": false,
-    "query_per_class_test": 1,
-    "n_train_classes": 48,
-    "num_workers": 4
+    "n_train_classes": 48
 }

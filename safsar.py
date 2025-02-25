@@ -8,7 +8,7 @@ import numpy as np
 from utils import BinaryClassificationModelSAFSAR
 
 class SAFSAR(nn.Module):
-    def __init__(self, config, disc=None, gc=None, freeze_ff=None, ddp=None):
+    def __init__(self, config, disc=None, gc=None, freeze_ff=None, dp=None):
         super(SAFSAR, self).__init__()
         self.processor = AutoImageProcessor.from_pretrained(config["processor_name"])
         self.model = AutoModelForVideoClassification.from_pretrained(config["mm_model_name"], output_hidden_states=True)
@@ -16,7 +16,7 @@ class SAFSAR(nn.Module):
         for param in self.model.videomae.embeddings.parameters():
             param.requires_grad = False
         # Distribute feature extractor for 5-shot training
-        if not ddp:
+        if dp:
             self.model = torch.nn.DataParallel(self.model)
             self.model = self.model.module
         self.way = config["way"]

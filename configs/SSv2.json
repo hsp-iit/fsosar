@@ -1,13 +1,7 @@
 {
     "path": "SSv2/images",
     "traintestlist": "splits/ssv2_OTAM",
-    "seq_len": 8,
     "img_size": 224,
-    "way": 5,
-    "shot": 1,
     "split": 7,
-    "debug_loader": false,
-    "query_per_class_test": 1,
-    "n_train_classes": 64,
-    "num_workers": 4
+    "n_train_classes": 64
 }

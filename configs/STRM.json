@@ -1,6 +1,5 @@
 
 {
-    "seq_len": 8,
     "trans_linear_in_dim": 2048,
     "trans_linear_out_dim": 1152,
     "lr": 0.001,

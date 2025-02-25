@@ -15,6 +15,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_oscr, compute_aupr
 import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
+from utils import is_address_in_use
 import copy
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
@@ -27,13 +28,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def main(rank, world_size, model_name, data_name, os_loss):
+def main(rank, world_size, model_name, data_name, os_loss, port):
     config = load_configs(model_name, data_name)
     config["model_name"] = model_name
     config["data_name"] = data_name
     config["os_loss"] = os_loss
     if config["ddp"]:  # When training more models on more GPU on a single machine, DDP is needed for performance
-        setup(rank, world_size, set_seeds=config["eval_only"])
+        setup(rank, world_size, set_seeds=config["eval_only"], port=port)
     # Create directory for saving checkpoints
     if rank == 0:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -59,13 +60,6 @@ def main(rank, world_size, model_name, data_name, os_loss):
             eval_after_steps = 20000
         elif data_name == "Diving48":
             lr = 0.0001
-    elif model_name == "SAFSAR":
-        if data_name == "SSv2":
-            # eval_after_steps = 35000
-            lr = 4e-6
-        #elif data_name == "UCF101" or data_name == "HMDB51":  # dataset too easy, freeze feature extractor
-         #   if os_loss == "softmax" or os_loss == "eos":  # no problems for disc and gc
-          #xy      eval_after_steps = 1000
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
@@ -78,7 +72,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
         if config["ddp"]:
             train_sampler = DistributedSampler(videodataset, num_replicas=world_size, rank=rank)
             dataloader = DataLoader(videodataset, batch_size=1, sampler=train_sampler, num_workers=data_config["num_workers"])
-        elif model_name == "SAFSAR":
+        else:
             dataloader = DataLoader(videodataset, batch_size=1, num_workers=data_config["num_workers"])
         return dataloader, videodataset
     dataloader, videodataset = setup_dataloader()
@@ -93,12 +87,12 @@ def main(rank, world_size, model_name, data_name, os_loss):
                                                                              disc=os_loss=="discriminator",
                                                                              gc=os_loss=="gc",
                                                                              freeze_ff=freeze_ff,
-                                                                             ddp=config["ddp"])
+                                                                             dp=config["dp"])
     os_loss_function = OpenSetLoss(os_loss)
 
     # Set up model
     model.to(rank)
-    if True:  # model_name == "STRM"
+    if config["ddp"]:
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
         model = model.module
     model.set_train()
@@ -285,11 +279,10 @@ def main(rank, world_size, model_name, data_name, os_loss):
                         wandb.log(train_results)
                     else:
                         print(train_results)
-                        # print(train_results["train/os_loss"], train_results["train/fs_acc"])
 
             # Enable evaluation
             if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
-                if True:  # model_name == "STRM"
+                if config["ddp"]:
                     dist.barrier()
                 if rank == 0:
                     progress_bar.close()
@@ -308,7 +301,7 @@ def main(rank, world_size, model_name, data_name, os_loss):
 
             # Disable evaluation
             if not training and step == config["n_eval_steps"]:
-                if True:  # model_name == "STRM"
+                if config["ddp"]:
                     dist.barrier()
                 model.set_train()
                 model.train()
@@ -357,10 +350,16 @@ if __name__ == "__main__":
     data_name = args.data
     os_loss = args.os_loss
     world_size = torch.cuda.device_count()
-    # NOTE to train STRM, we do 4 training on 4 GPUs, this works better with DDP
-    # for SAFSAR we use dataparallel for the feature extractor
+    # NOTE ddp is useful to isolate 4 models on 4 GPUs on same machine
     config = load_configs("SAFSAR", "SSv2")
     if config["ddp"]:
-        torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss), nprocs=world_size, join=True)
+        # To deal with possibly multiple training on one machine
+        ports = [12355, 12356, 12357, 12358, 12359]
+        for port in ports:
+            if not is_address_in_use('localhost', port):
+                print("chosen", port)
+                os.environ['MASTER_PORT'] = str(port)
+                break
+        torch.multiprocessing.spawn(main, args=(world_size, model_name, data_name, os_loss, port), nprocs=world_size, join=True)
     else:
-        main(0, world_size, model_name, data_name, os_loss)
+        main(0, world_size, model_name, data_name, os_loss, None)

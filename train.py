@@ -48,20 +48,20 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     eval_after_steps = config["eval_after_steps"]
     log_wandb = config["log_wandb"]
     if model_name == "STRM":
-        if data_name == "SSv2":
+        if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
             if os_loss == "gc":
                 lr = 0.0001
             else:
                 lr = 0.001
             eval_after_steps = 75000
-        elif data_name == "HMDB51" or data_name == "UCF101":
+        elif data_name in ["HMDB51", "UCF101"]:
             lr = 0.0001
             eval_after_steps = 20000
         elif data_name == "Diving48":
             lr = 0.0001
     elif model_name == "SAFSAR":
-        if data_name == "SSv2":
-            lr = 4e-6
+        if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
+            lr = 4e-5  # SAFSAR 5w1s uses this
         elif data_name in ["HMDB51", "UCF101"]:
             lr = 1e-7
         

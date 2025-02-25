@@ -60,10 +60,13 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         elif data_name == "Diving48":
             lr = 0.0001
     elif model_name == "SAFSAR":
-        if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
-            lr = 4e-5  # SAFSAR 5w1s uses this
-        elif data_name in ["HMDB51", "UCF101"]:
-            lr = 1e-7
+        if config["shot"] == 1:
+            if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
+                lr = 4e-5  # SAFSAR 5w1s uses this
+            elif data_name in ["HMDB51", "UCF101"]:
+                lr = 1e-7
+        elif config["shot"] == 5:
+            lr = 4e-6
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr

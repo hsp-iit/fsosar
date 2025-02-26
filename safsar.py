@@ -18,7 +18,6 @@ class SAFSAR(nn.Module):
         # Distribute feature extractor for 5-shot training
         if dp:
             self.model = torch.nn.DataParallel(self.model)
-            self.model = self.model.module
         self.way = config["way"]
         self.shot = config["shot"]
         self.seq_len = config["seq_len"]

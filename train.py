@@ -59,14 +59,17 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             eval_after_steps = 20000
         elif data_name == "Diving48":
             lr = 0.0001
+        disc_weight = 10
     elif model_name == "SAFSAR":
         if config["shot"] == 1:
             if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
                 lr = 4e-5  # SAFSAR 5w1s uses this
             elif data_name in ["HMDB51", "UCF101"]:
                 lr = 1e-7
+            disc_weight = 1
         elif config["shot"] == 5:
             lr = 4e-6
+            disc_weight = 1000
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
@@ -192,10 +195,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix, rescale_function)
                 if os_loss == "discriminator":
                     if unknown_losses["os_loss"] is not None:
-                        if model_name == "SAFSAR":
-                            unknown_losses["os_loss"] = unknown_losses["os_loss"]*1000  # this makes safsar disc work
-                        else:
-                            unknown_losses["os_loss"] = unknown_losses["os_loss"]*10
+                        if os_loss == "discriminator":
+                            unknown_losses["os_loss"] = unknown_losses["os_loss"]*disc_weight  # this makes safsar disc work
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:

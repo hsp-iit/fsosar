@@ -13,6 +13,6 @@ conda activate fsosar
 # Change to the fsosar directory
 cd /home/sberti/fsosar
 
-# Run the training script with OS_LOSS set from the environment variable
-# Defaults to 'discriminator' if OS_LOSS is not defined.
-python train.py --model SAFSAR --data SSv2 --os_loss "${OS_LOSS:-discriminator}"
+# Run the training script with OS_LOSS and DATA set from the environment variables.
+# Defaults to 'discriminator' for os_loss and 'SSv2' for data if not defined.
+python train.py --model SAFSAR --data "${DATA:-SSv2}" --os_loss "${OS_LOSS:-discriminator}"

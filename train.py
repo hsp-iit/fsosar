@@ -148,7 +148,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
 
             # Put together known and unknown
             img_shape = target_set.shape[-3:]
-            if os_loss != "None" or (not training and os_loss == "None"):  # at test time, always use unknown set
+            if os_loss != "softmax" or (not training and os_loss == "softmax"):  # at test time, always use unknown set
                 while True:  # Ensure that there is at least one unknown class
                     all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
                     all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)

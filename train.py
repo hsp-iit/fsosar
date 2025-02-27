@@ -66,7 +66,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 lr = 4e-7  # SAFSAR 5w1s uses this
             elif data_name in ["HMDB51", "UCF101"]:
                 lr = 4e-8
-            disc_weight = 1
+            disc_weight = 100
         elif config["shot"] == 5:
             lr = 4e-6
             disc_weight = 1000

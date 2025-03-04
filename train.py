@@ -103,7 +103,10 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     model.to(rank)
     if config["ddp"]:
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
-    model.module.set_train()
+        model_attributes = model.module
+    else:
+        model_attributes = model
+    model_attributes.set_train()
     model.train()
     if config["eval_only"]:
         model.load_state_dict(torch.load(config["checkpoint_path"]))
@@ -181,7 +184,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             if known_indices.sum() > 0:
                 if os_loss == "gc":  # Since GC is computed only as known loss, we do this
                     all_labels[all_labels==-1] = config["way"]-1
-                known_losses = model.module.compute_known_losses(**logits, true_target_labels=None,
+                known_losses = model_attributes.compute_known_losses(**logits, true_target_labels=None,
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
@@ -275,7 +278,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             else:
                 metrics = {"fs_acc": None, "os_auroc": None}
 
-            additional_metrics = model.module.compute_additional_metrics(**logits, support_labels=support_labels,
+            additional_metrics = model_attributes.compute_additional_metrics(**logits, support_labels=support_labels,
                                                                                    target_labels=all_labels,
                                                                                    batch_class_list=batch_class_list)
             metrics.update(additional_metrics)
@@ -284,7 +287,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             # Training logging
             if step % log_train_after_steps == 0 and step > 0 and training:
                 train_results = average_meter.average()
-                train_results.update(model.module.get_debug_data())
+                train_results.update(model_attributes.get_debug_data())
                 if rank == 0:
                     if log_wandb:
                         wandb.log(train_results)
@@ -298,7 +301,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 if rank == 0:
                     progress_bar.close()
                     progress_bar = tqdm(total=config["n_eval_steps"], desc="Evaluation Progress")
-                model.module.set_eval()
+                model_attributes.set_eval()
                 model.eval()
                 del dataloader
                 del videodataset
@@ -314,7 +317,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             if not training and step == config["n_eval_steps"]:
                 if config["ddp"]:
                     dist.barrier()
-                model.module.set_train()
+                model_attributes.set_train()
                 model.train()
                 del dataloader
                 del videodataset
@@ -324,7 +327,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                     progress_bar.close()
                     progress_bar = tqdm(total=eval_after_steps, desc="Training Progress")
                     print(test_results)
-                    test_results.update(model.module.get_debug_data())
+                    test_results.update(model_attributes.get_debug_data())
                     if config["log_wandb"]:
                         wandb.log(test_results)
                     # Save the model with test accuracy as the name

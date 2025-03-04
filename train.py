@@ -53,7 +53,6 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 lr = 0.0001
             else:
                 lr = 0.001
-            eval_after_steps = 75000
         elif data_name in ["HMDB51", "UCF101"]:
             lr = 0.0001
             eval_after_steps = 20000
@@ -62,8 +61,10 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         disc_weight = 10
     elif model_name == "SAFSAR":
         if config["shot"] == 1:
-            if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
-                lr = 4e-7  # SAFSAR 5w1s uses this
+            if data_name in ["NTURGBD120"]:
+                lr = 4e-7
+            elif data_name in ["SSv2", "Diving48"]:
+                lr = 4e-6
             elif data_name in ["HMDB51", "UCF101"]:
                 lr = 4e-8
             disc_weight = 100
@@ -111,7 +112,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     # Initialize wandb
     if log_wandb and rank==0:
         wandb.init(project="fsosar", config=config, name=f"{config['host']}_{checkpoint_path}")
-        wandb.watch(model, log="all")
+        # wandb.watch(model, log="all")
 
     # Define optimizer and scheduler depending on the model
     model_param = filter(lambda p: p.requires_grad, model.parameters())

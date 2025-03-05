@@ -147,9 +147,11 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     training = True
     optimize_every = config["optimize_every"]
     maximum_queries = config["maximum_queries"]
+    torch.set_grad_enabled(not config["eval_only"])
+    training = not config["eval_only"]
 
     while True:
-        assert dataloader.dataset.train == training
+        # assert dataloader.dataset.train == training
         for elem in dataloader:
             # Data preparation
             support_set = elem["support_set"].squeeze(0).cuda()
@@ -214,17 +216,17 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
-                model.visual_debug(**logits, videodataset=videodataset,
+                model_attributes.visual_debug(**logits, videodataset=videodataset,
                                                   support_labels=support_labels,
                                                   target_labels=all_labels,
                                                   batch_class_list=batch_class_list,
                                                   support_set=support_set,
                                                   target_set=all_images,
-                                                  all_unknowns=all_unknowns)
+                                                  unknown_labels=all_unknowns)
 
             # Optimization
             known_losses.update(unknown_losses)
-            if training:
+            if training and not config["eval_only"]:
                 all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
                 all_loss.backward()
                 if step % optimize_every == 0:

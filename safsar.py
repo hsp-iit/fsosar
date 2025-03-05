@@ -213,30 +213,48 @@ class SAFSAR(nn.Module):
 
         return {"global_support_acc": global_support_acc, "global_query_acc": global_query_acc}
 
-    def visual_debug(self, similarity_matrix=None, support_global_logits=None, query_global_logits=None, videodataset=None, support_labels=None, target_labels=None, batch_class_list=None, support_set=None, target_set=None):
+    def visual_debug(self, similarity_matrix=None, support_global_logits=None, query_global_logits=None, videodataset=None, support_labels=None, target_labels=None, batch_class_list=None, support_set=None, target_set=None, disc_prob=None, unknown_labels=None):
         import cv2
         import imageio
         import os
 
         # Save support set gif
+        support_set = support_set.reshape(-1, self.seq_len, 224, 3, 224)
+        support_set = support_set[torch.argsort(support_labels)]
         support_set = support_set.reshape(self.way, self.shot, self.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
         concatenated_frames = []
-        support_classes = []
+        support_classes = [videodataset.class_folders[int(batch_class_list[i])] for i in range(self.way)]
+
         for i in range(self.way):
             for j in range(self.shot):
-                support_classes.append(videodataset.class_folders[int(batch_class_list[support_labels[i*self.shot+j]])])
                 frames = []
                 for k in support_set[i, j]:
+
                     frame_rgb = k.cpu().numpy()
                     frame_rgb = ((frame_rgb - frame_rgb.min()) / (frame_rgb.max() - frame_rgb.min()) * 255).astype(np.uint8)
                     frames.append(frame_rgb)
                 concatenated_frames.append(frames)
-        concatenated_frames = np.concatenate(concatenated_frames, axis=1)  # 3 for vertival, 2 for horizontal
+
+        concatenated_frames = np.stack([np.stack(x) for x in concatenated_frames])
+        concatenated_frames = concatenated_frames.reshape(self.way, self.shot, self.seq_len, 224, 224, 3)
+        concatenated_frames = np.concatenate(concatenated_frames, axis=2)
+        concatenated_frames = np.concatenate(concatenated_frames, axis=2)
         os.makedirs(f'visual_debug/{self.debug_samples_counter}', exist_ok=True)
         imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/ss.gif', concatenated_frames, duration=250, loop=0)
         with open(f'visual_debug/{self.debug_samples_counter}/ss.txt', 'w') as f:
             for item in support_classes:
                 f.write("%s\n" % item)
+
+        # Check predictions
+        good_closed = similarity_matrix.argmax(dim=-1) == target_labels
+        if disc_prob is None:
+            accept_score = similarity_matrix.max(dim=-1).values
+        else:
+            accept_score = disc_prob.detach().cpu().numpy()
+        # good_open = accept_score == (target_labels != -1)
+        true_open = target_labels != -1
+        pred_open = accept_score > 0.5
+        
 
         # Save queries gif
         target_set = target_set.reshape(self.way, self.query_per_class, self.seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
@@ -247,7 +265,7 @@ class SAFSAR(nn.Module):
         for i in range(self.way):
             for j in range(self.query_per_class):
                 if target_labels[i*self.query_per_class+j] == -1:
-                    query_label = f"unknown_{unknown_counter}"
+                    query_label = videodataset.class_folders[int(unknown_labels[i*self.query_per_class+j])]
                     unknown_counter += 1
                 else:
                     query_label = videodataset.class_folders[int(batch_class_list[target_labels[i*self.query_per_class+j]])]
@@ -257,18 +275,29 @@ class SAFSAR(nn.Module):
                     frame_rgb = k.cpu().numpy()
                     frame_rgb = ((frame_rgb - frame_rgb.min()) / (frame_rgb.max() - frame_rgb.min()) * 255).astype(np.uint8)
                     concatenated_frame.append(frame_rgb)
-                imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/{i}_{query_label}.gif', concatenated_frame, duration=250, loop=0)
+                # determine it TP TN FP FN
+                cur = i*self.query_per_class+j
+                res = ""
+                if true_open[cur] and pred_open[cur] and good_closed[cur]:
+                    res = "TP"
+                elif not true_open[cur] and not pred_open[cur]:
+                    res = "TN"
+                elif true_open[cur] and not pred_open[cur]:
+                    res = "FN"
+                elif not true_open[cur] and pred_open[cur]:
+                    res = "FP"
+                imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/{res}_{accept_score[cur]}_{query_label}.gif', concatenated_frame, duration=250, loop=0)
 
-        # Save results
-        true_targets = torch.argsort(support_labels)[target_labels]
-        true_targets[target_labels == -1] = -1
-        similarity_matrix = similarity_matrix.detach().cpu().numpy()
-        with open(f'visual_debug/{self.debug_samples_counter}/similarity_matrix.txt', 'w') as f:
-            for item in support_classes:
-                f.write("%s " % item)
-            f.write("\n")
-            lazy_counter = 0
-            for item in similarity_matrix:
-                f.write(f"%s\t{true_targets[lazy_counter]} {query_labels[lazy_counter]}\n" % item)
-                lazy_counter += 1
+        # # Save results
+        # true_targets = torch.argsort(support_labels)[target_labels]
+        # true_targets[target_labels == -1] = -1
+        # similarity_matrix = similarity_matrix.detach().cpu().numpy()
+        # with open(f'visual_debug/{self.debug_samples_counter}/similarity_matrix.txt', 'w') as f:
+        #     for item in support_classes:
+        #         f.write("%s " % item)
+        #     f.write("\n")
+        #     lazy_counter = 0
+        #     for item in similarity_matrix:
+        #         f.write(f"%s\t{true_targets[lazy_counter]} {query_labels[lazy_counter]}\n" % item)
+        #         lazy_counter += 1
         self.debug_samples_counter += 1

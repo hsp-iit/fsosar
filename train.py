@@ -53,19 +53,19 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 lr = 0.0001
             else:
                 lr = 0.001
-            eval_after_steps = 75000
         elif data_name in ["HMDB51", "UCF101"]:
             lr = 0.0001
-            eval_after_steps = 20000
         elif data_name == "Diving48":
             lr = 0.0001
         disc_weight = 10
     elif model_name == "SAFSAR":
         if config["shot"] == 1:
-            if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
-                lr = 4e-7  # SAFSAR 5w1s uses this
+            if data_name in ["NTURGBD120"]:
+                lr = 4e-7
+            elif data_name in ["SSv2", "Diving48"]:
+                lr = 4e-6
             elif data_name in ["HMDB51", "UCF101"]:
-                lr = 4e-8
+                lr = 1e-8
             disc_weight = 100
         elif config["shot"] == 5:
             lr = 4e-6
@@ -109,12 +109,21 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     model_attributes.set_train()
     model.train()
     if config["eval_only"]:
-        model.load_state_dict(torch.load(config["checkpoint_path"]))
+        import collections
+        old_weights = torch.load(config["checkpoint_path"])
+        new_weights = collections.OrderedDict()
+        for k, v in old_weights.items():
+            new_name = k.replace("model.module.", "module.model.")
+            if "discriminator" in new_name or "mm_fusion_module" in new_name or "task_specific_learning_module" in new_name or "global_classification_layer" in new_name:
+                new_name = "module." + new_name
+            new_weights[new_name] = copy.deepcopy(v)
+        del old_weights
+        model.load_state_dict(new_weights)
 
     # Initialize wandb
     if log_wandb and rank==0:
         wandb.init(project="fsosar", config=config, name=f"{config['host']}_{checkpoint_path}")
-        wandb.watch(model, log="all")
+        # wandb.watch(model, log="all")
 
     # Define optimizer and scheduler depending on the model
     model_param = filter(lambda p: p.requires_grad, model.parameters())
@@ -154,13 +163,14 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
 
             # Put together known and unknown
             img_shape = target_set.shape[-3:]
-            if os_loss != "softmax" or (not training and os_loss == "softmax"):  # at test time, always use unknown set
+            if os_loss != "softmax" or (not training and os_loss == "softmax") or config["eval_only"]:  # at test time, always use unknown set
                 while True:  # Ensure that there is at least one unknown class
                     all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
                     all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
-                    t = list(zip(all_images, all_labels))
+                    all_unknowns = torch.cat((torch.full_like(target_labels, 0), unknown_labels), 0)
+                    t = list(zip(all_images, all_labels, all_unknowns))
                     random.shuffle(t)
-                    all_images, all_labels = zip(*t)
+                    all_images, all_labels, all_unknowns = zip(*t)
                     # Get only first 5 elements for memory constraints
                     all_images = torch.stack(all_images[:maximum_queries])
                     all_images = all_images.reshape(-1, config["seq_len"], *img_shape)
@@ -170,6 +180,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             else:
                 all_images = target_set.reshape(-1, config["seq_len"], *img_shape)[:maximum_queries]
                 all_labels = target_labels[:maximum_queries]
+                all_unknowns = unknown_labels[:maximum_queries]
             all_images = all_images.cuda()
             all_labels = all_labels.cuda()
 
@@ -208,7 +219,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                                                   target_labels=all_labels,
                                                   batch_class_list=batch_class_list,
                                                   support_set=support_set,
-                                                  target_set=all_images)
+                                                  target_set=all_images,
+                                                  all_unknowns=all_unknowns)
 
             # Optimization
             known_losses.update(unknown_losses)

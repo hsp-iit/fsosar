@@ -48,8 +48,8 @@ class SAFSAR(nn.Module):
 
         if gc:
             self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
-        elif disc:
-            self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
+        # elif disc:  if I initialize it everytime, I dont break the pytorch seed with softmax
+        self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
         self.gc = gc
         self.disc = disc
 

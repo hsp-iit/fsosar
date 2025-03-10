@@ -17,5 +17,5 @@
     "num_workers": 4,
     "ddp": true,
     "dp": false,
-    "shot": 1
+    "shot": 5
 }

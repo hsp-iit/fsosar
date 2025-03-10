@@ -118,7 +118,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 new_name = "module." + new_name
             new_weights[new_name] = copy.deepcopy(v)
         del old_weights
-        model.load_state_dict(new_weights)
+        model.load_state_dict(new_weights, strict=False)
 
     # Initialize wandb
     if log_wandb and rank==0:

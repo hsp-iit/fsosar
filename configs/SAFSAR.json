@@ -15,7 +15,7 @@
     "optimize_every": 1,
     "maximum_queries": 5,
     "num_workers": 4,
-    "ddp": true,
-    "dp": false,
+    "ddp": false,
+    "dp": true,
     "shot": 5
 }

@@ -6,6 +6,7 @@ from utils import compute_accuracy, OpenSetLoss
 import wandb
 import numpy as np
 from utils import BinaryClassificationModelSAFSAR
+import copy
 
 class SAFSAR(nn.Module):
     def __init__(self, config, disc=None, gc=None, dp=None):
@@ -17,6 +18,8 @@ class SAFSAR(nn.Module):
             param.requires_grad = False
         # Distribute feature extractor for 5-shot training
         if dp:
+            # Copy the weight of self.model.fc_norm such that we can optimize them
+            self.fc_norm = copy.deepcopy(self.model.fc_norm)
             self.model = torch.nn.DataParallel(self.model)
         self.way = config["way"]
         self.shot = config["shot"]
@@ -91,9 +94,11 @@ class SAFSAR(nn.Module):
         support_set = support_set.permute(0, 1, 3, 4, 2)
         if self.seq_len == 8:
             inputs = {"pixel_values": support_set.repeat_interleave(2, dim=1).cuda()}
+        else:
+            inputs = {"pixel_values": support_set.cuda()}
         outputs = self.model(**inputs)
         support_features = outputs.hidden_states[-1].mean(dim=1)
-        support_features = self.model.fc_norm(support_features)
+        support_features = self.fc_norm(support_features)
         support_features_mean = []
         for c in support_labels.unique():
             support_features_mean.append(support_features[support_labels == c].mean(dim=0))
@@ -120,10 +125,12 @@ class SAFSAR(nn.Module):
         target_set = target_set.permute(0, 1, 3, 4, 2)
         if self.seq_len == 8:
             inputs = {"pixel_values": target_set.repeat_interleave(2, dim=1).cuda()}
+        else:
+            inputs = {"pixel_values": target_set.cuda()}
         inputs['pixel_values'] = inputs['pixel_values'].cuda()
         outputs = self.model(**inputs)
         query_features = outputs.hidden_states[-1].mean(dim=1)
-        query_features = self.model.fc_norm(query_features)
+        query_features = self.fc_norm(query_features)
 
         # Repeat embeddings for each query
         support_mm_features = support_mm_features.unsqueeze(0).repeat(n_queries, 1, 1)

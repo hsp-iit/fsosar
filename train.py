@@ -56,7 +56,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             disc_weight = 10
         elif data_name in ["HMDB51", "UCF101"]:
             lr = 0.0001
-            disc_weight = 1
+            disc_weight = 10
         elif data_name == "Diving48":
             lr = 0.0001
             disc_weight = 10
@@ -113,7 +113,16 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     model_attributes.set_train()
     model.train()
     if config["eval_only"]:
-        model.load_state_dict(torch.load(config["checkpoint_path"]))
+        import collections
+        old_weights = torch.load(config["checkpoint_path"])
+        new_weights = collections.OrderedDict()
+        for k, v in old_weights.items():
+            new_name = k.replace("model.module.", "module.model.")
+            if "discriminator" in new_name or "mm_fusion_module" in new_name or "task_specific_learning_module" in new_name or "global_classification_layer" in new_name:
+                new_name = "module." + new_name
+            new_weights[new_name] = copy.deepcopy(v)
+        del old_weights
+        model.load_state_dict(new_weights, strict=False)
 
     # Initialize wandb
     if log_wandb and rank==0:
@@ -142,9 +151,11 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     training = True
     optimize_every = config["optimize_every"]
     maximum_queries = config["maximum_queries"]
+    torch.set_grad_enabled(not config["eval_only"])
+    training = not config["eval_only"]
 
     while True:
-        assert dataloader.dataset.train == training
+        # assert dataloader.dataset.train == training
         for elem in dataloader:
             # Data preparation
             support_set = elem["support_set"].squeeze(0).cuda()
@@ -158,13 +169,14 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
 
             # Put together known and unknown
             img_shape = target_set.shape[-3:]
-            if os_loss != "softmax" or (not training and os_loss == "softmax"):  # at test time, always use unknown set
+            if os_loss != "softmax" or (not training and os_loss == "softmax") or config["eval_only"]:  # at test time, always use unknown set
                 while True:  # Ensure that there is at least one unknown class
                     all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
                     all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
-                    t = list(zip(all_images, all_labels))
+                    all_unknowns = torch.cat((torch.full_like(target_labels, 0), unknown_labels), 0)
+                    t = list(zip(all_images, all_labels, all_unknowns))
                     random.shuffle(t)
-                    all_images, all_labels = zip(*t)
+                    all_images, all_labels, all_unknowns = zip(*t)
                     # Get only first 5 elements for memory constraints
                     all_images = torch.stack(all_images[:maximum_queries])
                     all_images = all_images.reshape(-1, config["seq_len"], *img_shape)
@@ -174,6 +186,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             else:
                 all_images = target_set.reshape(-1, config["seq_len"], *img_shape)[:maximum_queries]
                 all_labels = target_labels[:maximum_queries]
+                all_unknowns = unknown_labels[:maximum_queries]
             all_images = all_images.cuda()
             all_labels = all_labels.cuda()
 
@@ -207,16 +220,17 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
-                model.visual_debug(**logits, videodataset=videodataset,
+                model_attributes.visual_debug(**logits, videodataset=videodataset,
                                                   support_labels=support_labels,
                                                   target_labels=all_labels,
                                                   batch_class_list=batch_class_list,
                                                   support_set=support_set,
-                                                  target_set=all_images)
+                                                  target_set=all_images,
+                                                  unknown_labels=all_unknowns)
 
             # Optimization
             known_losses.update(unknown_losses)
-            if training:
+            if training and not config["eval_only"]:
                 all_loss = sum([v if v is not None else 0 for k, v in known_losses.items()])
                 all_loss.backward()
                 if step % optimize_every == 0:

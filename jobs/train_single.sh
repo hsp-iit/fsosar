@@ -1,7 +1,7 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=16:ngpus=4
 #PBS -l walltime=24:00:00
-#PBS -N safsar_softmax
+#PBS -N SAFSAR_Diving48_discriminator
 #PBS -q gpu
 #PBS -j oe
 
@@ -15,4 +15,4 @@ cd /home/sberti/fsosar
 
 # Run the training script with OS_LOSS set from the environment variable
 # Defaults to 'softmax' if OS_LOSS is not defined.
-python train.py --model SAFSAR --data SSv2 --os_loss softmax
+python train.py --model SAFSAR --data Diving48 --os_loss discriminator

@@ -5,7 +5,7 @@
     "n_eval_steps": 1000,
     "visual_debug": false,
     "checkpoint_path": "",
-    "eval_after_steps": 1000,
+    "eval_after_steps": 5000,
     "exit_after_eval": false,
     "way": 5,
     "seq_len": 8,

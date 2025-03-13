@@ -1,12 +1,13 @@
+
 #!/bin/bash
 # Define model types to iterate over
 models=("softmax" "eos" "gc" "discriminator")
 
 # Define data type to iterate over
-data="Diving48"
+data="UCF101"
 
 # Base job script file name
-job_script="train_safsar.sh"
+job_script="train_batch.sh"
 
 # Loop over each model type and submit the job
 for model in "${models[@]}"; do

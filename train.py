@@ -53,20 +53,23 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 lr = 0.0001
             else:
                 lr = 0.001
+            disc_weight = 10
         elif data_name in ["HMDB51", "UCF101"]:
             lr = 0.0001
-            eval_after_steps = 20000
+            disc_weight = 1
         elif data_name == "Diving48":
             lr = 0.0001
-        disc_weight = 10
+            disc_weight = 10
     elif model_name == "SAFSAR":
         if config["shot"] == 1:
             if data_name in ["NTURGBD120"]:
                 lr = 4e-7
             elif data_name in ["SSv2", "Diving48"]:
                 lr = 4e-6
-            elif data_name in ["HMDB51", "UCF101"]:
-                lr = 4e-8
+            elif data_name in ["UCF101"]:
+                lr = 1e-8
+            elif data_name in ["HMDB51"]:
+                lr = 1e-7
             disc_weight = 100
         elif config["shot"] == 5:
             lr = 4e-6

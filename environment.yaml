@@ -4,15 +4,15 @@ channels:
   - nvidia
   - conda-forge
 dependencies:
-  - python=3.8
+  - python
   - pytorch
   - torchvision
   - torchaudio
-  - pytorch-cuda=11.8
+  - pytorch-cuda
   - transformers
   - scikit-learn
   - wandb
   - matplotlib
   - pip:
     - pytorch
-prefix: /home/iit.local/sberti/mambaforge/envs/fsosar
+prefix: /fastwork/sberti/envs/

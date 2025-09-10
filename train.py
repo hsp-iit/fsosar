@@ -1,5 +1,4 @@
 import argparse
-from safsar import SAFSAR
 from videoloader import VideoDataset
 import torch
 import wandb
@@ -10,19 +9,19 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from datetime import datetime
 import random
-import importlib
 from torch.optim.lr_scheduler import MultiStepLR
 from utils import AverageMeter, setup, load_configs, DataArgs, OpenSetLoss, compute_accuracy, compute_oscr, compute_aupr
 import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
 from utils import is_address_in_use
 import copy
+from models import SAFSAR, STRM, ActionCLIP, MAML
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
-    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
+    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR", "ActionCLIP", "MAML"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving48"], help='Data name')
     parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "objectosphere", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
@@ -74,6 +73,34 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         elif config["shot"] == 5:
             lr = 4e-6
             disc_weight = 1000
+    elif model_name == "ActionCLIP":
+        if config["shot"] == 1:
+            if data_name in ["NTURGBD120"]:
+                lr = 1e-6
+            elif data_name in ["SSv2", "Diving48"]:
+                lr = 1e-5
+            elif data_name in ["UCF101"]:
+                lr = 5e-7
+            elif data_name in ["HMDB51"]:
+                lr = 5e-7
+            disc_weight = 100
+        elif config["shot"] == 5:
+            lr = 1e-5
+            disc_weight = 1000
+    elif model_name == "MAML":
+        if config["shot"] == 1:
+            if data_name in ["NTURGBD120"]:
+                lr = 1e-4
+            elif data_name in ["SSv2", "Diving48"]:
+                lr = 1e-4
+            elif data_name in ["UCF101"]:
+                lr = 5e-5
+            elif data_name in ["HMDB51"]:
+                lr = 5e-5
+            disc_weight = 100
+        elif config["shot"] == 5:
+            lr = 1e-4
+            disc_weight = 1000
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
@@ -97,10 +124,18 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     # Model
     if os_loss == "gc":  # We add one class for the unknown class, dataset is already declared
         config["way"] += 1
-    model = getattr(importlib.import_module(model_name.lower()), model_name)(config,
-                                                                             disc=os_loss=="discriminator",
-                                                                             gc=os_loss=="gc",
-                                                                             dp=config["dp"])
+    
+    if model_name == "SAFSAR":
+        model = SAFSAR(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    elif model_name == "STRM":
+        model = STRM(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    elif model_name == "ActionCLIP":
+        model = ActionCLIP(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    elif model_name == "MAML":
+        model = MAML(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    else:
+        raise ValueError(f"Unknown model: {model_name}")
+    
     os_loss_function = OpenSetLoss(os_loss)
 
     # Set up model
@@ -137,6 +172,12 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     elif model_name == "STRM":
         optimizer = torch.optim.SGD(model_param, lr=lr)
         scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
+    elif model_name == "ActionCLIP":
+        optimizer = torch.optim.Adam(model_param, lr=lr)
+        scheduler = None
+    elif model_name == "MAML":
+        optimizer = torch.optim.Adam(model_param, lr=lr)
+        scheduler = None
     else:
         raise Exception("Wrong model name")
 
@@ -210,6 +251,10 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                         rescale_function = lambda x: (x+1)/2
                     if model_name == "STRM":
                         rescale_function = torch.exp
+                    if model_name == "ActionCLIP":
+                        rescale_function = lambda x: (x+1)/2
+                    if model_name == "MAML":
+                        rescale_function = lambda x: (x+1)/2
                 else:
                     rescale_function = None
                 unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix, rescale_function)
@@ -248,7 +293,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 if model_name == "STRM":
                     scaled_similarity_matrix = torch.exp(similarity_matrix)
                     # acc_target = all_labels
-                elif model_name == "SAFSAR":
+                elif model_name in ["SAFSAR", "ActionCLIP", "MAML"]:
                     scaled_similarity_matrix = (similarity_matrix + 1)/2
                     # acc_target = true_target_labels
                 if os_loss == "gc":

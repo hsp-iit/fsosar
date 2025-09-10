@@ -5,3 +5,5 @@ wandb
 logs
 checkpoints
 visual_debug
+*.err
+*.out

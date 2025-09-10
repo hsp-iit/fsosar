@@ -1,0 +1,20 @@
+{
+    "clip_model": "ViT-B/32",
+    "hidden_size": 512,
+    "num_layers_temporal": 2,
+    "num_layers_mm": 2,
+    "num_heads": 8,
+    "intermediate_size": 2048,
+    "num_layers_task": 1,
+    "use_l2_loss": true,
+    "use_textual_embedding": true,
+    "alpha": 0.1,
+    "lr": 4e-6,
+    "query_per_class": 1,
+    "optimize_every": 1,
+    "maximum_queries": 5,
+    "num_workers": 4,
+    "ddp": false,
+    "dp": true,
+    "shot": 5
+}

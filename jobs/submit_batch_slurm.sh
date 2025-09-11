@@ -18,6 +18,13 @@ valid_models=("STRM" "SAFSAR" "ActionCLIP" "MAML")
 valid_datasets=("SSv2" "HMDB51" "UCF101" "NTURGBD120" "Diving48")
 valid_os_losses=("softmax" "eos" "objectosphere" "discriminator" "gc")
 
+# Reservation configuration (set to empty string to disable)
+reservation_name="sberti_14"  # Set to "" to disable reservation usage
+
+# Job batching configuration
+jobs_with_reservation=16    # Number of jobs to submit with reservation
+jobs_without_reservation=6  # Number of jobs to submit without reservation
+
 # Define models to test (can be customized)
 models=("ActionCLIP" "MAML")
 
@@ -32,7 +39,7 @@ job_script="train_batch_slurm.sh"
 
 # SLURM job configuration (can be customized)
 partition="gpuv"
-time_limit="6:00:00"
+time_limit="12:00:00"
 cpus_per_task=10
 gpus=1
 memory="32G"
@@ -145,24 +152,17 @@ show_combinations() {
     echo "CPUs per task: $cpus_per_task"
     echo "GPUs per job: $gpus"
     echo "Memory per job: $memory"
+    if [[ -n "$reservation_name" ]]; then
+        echo "Reservation: $reservation_name (pattern: $jobs_with_reservation with / $jobs_without_reservation without)"
+    else
+        echo "Reservation: None"
+    fi
     echo ""
-    echo "Will run the following combinations:"
+    echo "Job combinations:"
     echo "Models: ${models[*]}"
     echo "Datasets: ${datasets[*]}"
     echo "OS Losses: ${os_losses[*]}"
     echo "Total jobs: $((${#models[@]} * ${#datasets[@]} * ${#os_losses[@]}))"
-    echo ""
-    
-    # Show detailed combinations
-    local count=1
-    for model in "${models[@]}"; do
-        for dataset in "${datasets[@]}"; do
-            for os_loss in "${os_losses[@]}"; do
-                echo "$count. Model: $model, Dataset: $dataset, OS Loss: $os_loss"
-                ((count++))
-            done
-        done
-    done
     echo "==============================================="
 }
 
@@ -195,49 +195,91 @@ validate_inputs
 # Show what will be run
 show_combinations
 
-# Ask for confirmation
-read -p "Do you want to submit these jobs to SLURM? (y/N): " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Aborted."
-    exit 0
-fi
-
-# Submit jobs
+# Submit jobs automatically (no user confirmation needed)
 echo "Submitting jobs to SLURM..."
 job_count=0
 job_ids=()
 
+# Create logs directory if it doesn't exist
+logs_dir="/fastwork/sberti/fsosar/slurm_logs"
+mkdir -p "$logs_dir"
+
+# Create array of all job combinations
+job_combinations=()
 for model in "${models[@]}"; do
     for dataset in "${datasets[@]}"; do
         for os_loss in "${os_losses[@]}"; do
-            job_name="${model}_${dataset}_${os_loss}"
-            echo "Submitting job: $job_name"
-            
-            # Submit job with custom configuration
-            job_id=$(sbatch \
-                --job-name="$job_name" \
-                --partition="$partition" \
-                --time="$time_limit" \
-                --cpus-per-task="$cpus_per_task" \
-                --gres="gpu:$gpus" \
-                --mem="$memory" \
-                --export="MODEL=$model,DATA=$dataset,OS_LOSS=$os_loss" \
-                "$(dirname "$0")/$job_script" | awk '{print $4}')
-            
-            if [[ -n "$job_id" ]]; then
-                job_ids+=("$job_id")
-                echo "  → Job ID: $job_id"
-            else
-                echo "  → Failed to submit job"
-            fi
-            
-            ((job_count++))
-            
-            # Add a small delay to avoid overwhelming the queue system
-            sleep 0.5
+            job_combinations+=("$model:$dataset:$os_loss")
         done
     done
+done
+
+echo "Total job combinations: ${#job_combinations[@]}"
+if [[ -n "$reservation_name" ]]; then
+    echo "Using reservation pattern: $jobs_with_reservation jobs with '$reservation_name', then $jobs_without_reservation jobs without"
+else
+    echo "No reservation will be used"
+fi
+echo "Starting job submission..."
+echo ""
+
+# Submit jobs with alternating reservation pattern
+reservation_counter=0
+for job_combo in "${job_combinations[@]}"; do
+    IFS=':' read -r model dataset os_loss <<< "$job_combo"
+    job_name="${model}_${dataset}_${os_loss}"
+    
+    # Determine if we should use reservation for this job
+    use_reservation=false
+    if [[ -n "$reservation_name" ]]; then
+        cycle_position=$((reservation_counter % (jobs_with_reservation + jobs_without_reservation)))
+        if [[ $cycle_position -lt $jobs_with_reservation ]]; then
+            use_reservation=true
+        fi
+    fi
+    
+    echo "Submitting job: $job_name"
+    if [[ "$use_reservation" == true ]]; then
+        echo "  → With reservation: $reservation_name"
+        # Submit job with reservation
+        job_id=$(sbatch \
+            --job-name="$job_name" \
+            --partition="$partition" \
+            --reservation="$reservation_name" \
+            --time="$time_limit" \
+            --cpus-per-task="$cpus_per_task" \
+            --gres="gpu:$gpus" \
+            --mem="$memory" \
+            --output="$logs_dir/${job_name}_%j.out" \
+            --error="$logs_dir/${job_name}_%j.err" \
+            --export="MODEL=$model,DATA=$dataset,OS_LOSS=$os_loss" \
+            "$(dirname "$0")/$job_script" | awk '{print $4}')
+    else
+        echo "  → No reservation"
+        # Submit job without reservation
+        job_id=$(sbatch \
+            --job-name="$job_name" \
+            --partition="$partition" \
+            --time="$time_limit" \
+            --cpus-per-task="$cpus_per_task" \
+            --gres="gpu:$gpus" \
+            --mem="$memory" \
+            --output="$logs_dir/${job_name}_%j.out" \
+            --error="$logs_dir/${job_name}_%j.err" \
+            --export="MODEL=$model,DATA=$dataset,OS_LOSS=$os_loss" \
+            "$(dirname "$0")/$job_script" | awk '{print $4}')
+    fi
+    
+    if [[ -n "$job_id" ]]; then
+        job_ids+=("$job_id")
+        echo "  → Job ID: $job_id"
+    else
+        echo "  → FAILED"
+    fi
+    
+    ((job_count++))
+    ((reservation_counter++))
+    sleep 0.3  # Brief pause
 done
 
 echo ""
@@ -247,6 +289,8 @@ echo "==============================================="
 echo "Successfully submitted $job_count jobs!"
 echo "Job IDs: ${job_ids[*]}"
 echo ""
+echo "Log files location: $logs_dir"
+echo ""
 echo "Useful SLURM commands:"
 echo "  squeue -u \$USER          # Check your job queue"
 echo "  squeue -j <job_id>        # Check specific job status"
@@ -254,6 +298,6 @@ echo "  scancel <job_id>          # Cancel a specific job"
 echo "  scancel -u \$USER         # Cancel all your jobs"
 echo "  scontrol show job <job_id> # Show detailed job info"
 echo ""
-echo "Job output files will be saved as: <job_name>_<job_id>.out"
-echo "Job error files will be saved as: <job_name>_<job_id>.err"
+echo "Job output files: $logs_dir/<job_name>_<job_id>.out"
+echo "Job error files: $logs_dir/<job_name>_<job_id>.err"
 echo "==============================================="

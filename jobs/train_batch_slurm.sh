@@ -1,13 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=fsosar_train
-#SBATCH --partition=gpu
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=20
-#SBATCH --gres=gpu:4
-#SBATCH --time=24:00:00
-#SBATCH --output=%x_%j.out
-#SBATCH --error=%x_%j.err
+# This script is called by submit_batch_slurm.sh
+# All SLURM parameters are controlled by the submission script
 
 # Initialize conda
 source /home/sberti/.bashrc

@@ -181,9 +181,9 @@ def load_configs(model_name, data_name):
         log_path = "."
     elif "sberti" in cwd:
         local_or_server = "server"
-        datasets_path = "/work/sberti"
+        datasets_path = "/fastwork/sberti"
         host = "franklin"
-        log_path = "/work/sberti"
+        log_path = "/fastwork/sberti"
         
     model_config_path = f"configs/{model_name}.json"
     data_config_path = f"configs/{data_name}.json"

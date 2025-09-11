@@ -16,17 +16,18 @@ contains_element() {
 # Define valid models and datasets
 valid_models=("STRM" "SAFSAR" "ActionCLIP" "MAML")
 valid_datasets=("SSv2" "HMDB51" "UCF101" "NTURGBD120" "Diving48")
-valid_os_losses=("softmax" "eos" "objectosphere" "discriminator" "gc")
+valid_os_losses=("softmax" "eos" "discriminator" "gc")
 
-# Reservation configuration (set to empty string to disable)
+## Reservation and QOS configuration (set to empty string to disable)
 reservation_name="sberti_14"  # Set to "" to disable reservation usage
+qos_name="resv1"              # Set to "" to disable qos usage
 
 # Job batching configuration
 jobs_with_reservation=16    # Number of jobs to submit with reservation
 jobs_without_reservation=6  # Number of jobs to submit without reservation
 
 # Define models to test (can be customized)
-models=("ActionCLIP" "MAML")
+models=("MAML")
 
 # Define datasets to test (can be customized)
 datasets=("UCF101" "HMDB51" "Diving48" "NTURGBD120" "SSv2")
@@ -241,33 +242,43 @@ for job_combo in "${job_combinations[@]}"; do
     echo "Submitting job: $job_name"
     if [[ "$use_reservation" == true ]]; then
         echo "  → With reservation: $reservation_name"
-        # Submit job with reservation
-        job_id=$(sbatch \
-            --job-name="$job_name" \
-            --partition="$partition" \
-            --reservation="$reservation_name" \
-            --time="$time_limit" \
-            --cpus-per-task="$cpus_per_task" \
-            --gres="gpu:$gpus" \
-            --mem="$memory" \
-            --output="$logs_dir/${job_name}_%j.out" \
-            --error="$logs_dir/${job_name}_%j.err" \
-            --export="MODEL=$model,DATA=$dataset,OS_LOSS=$os_loss" \
-            "$(dirname "$0")/$job_script" | awk '{print $4}')
+        sbatch_cmd=(sbatch
+            --job-name="$job_name"
+            --partition="$partition"
+            --time="$time_limit"
+            --cpus-per-task="$cpus_per_task"
+            --gres="gpu:$gpus"
+            --mem="$memory"
+            --output="$logs_dir/${job_name}_%j.out"
+            --error="$logs_dir/${job_name}_%j.err"
+            --export="MODEL=$model,DATA=$dataset,OS_LOSS=$os_loss"
+        )
+        if [[ -n "$reservation_name" ]]; then
+            sbatch_cmd+=(--reservation="$reservation_name")
+        fi
+        if [[ -n "$qos_name" ]]; then
+            sbatch_cmd+=(--qos="$qos_name")
+        fi
+        sbatch_cmd+=("$(dirname "$0")/$job_script")
+        job_id=$("${sbatch_cmd[@]}" | awk '{print $4}')
     else
         echo "  → No reservation"
-        # Submit job without reservation
-        job_id=$(sbatch \
-            --job-name="$job_name" \
-            --partition="$partition" \
-            --time="$time_limit" \
-            --cpus-per-task="$cpus_per_task" \
-            --gres="gpu:$gpus" \
-            --mem="$memory" \
-            --output="$logs_dir/${job_name}_%j.out" \
-            --error="$logs_dir/${job_name}_%j.err" \
-            --export="MODEL=$model,DATA=$dataset,OS_LOSS=$os_loss" \
-            "$(dirname "$0")/$job_script" | awk '{print $4}')
+        sbatch_cmd=(sbatch
+            --job-name="$job_name"
+            --partition="$partition"
+            --time="$time_limit"
+            --cpus-per-task="$cpus_per_task"
+            --gres="gpu:$gpus"
+            --mem="$memory"
+            --output="$logs_dir/${job_name}_%j.out"
+            --error="$logs_dir/${job_name}_%j.err"
+            --export="MODEL=$model,DATA=$dataset,OS_LOSS=$os_loss"
+        )
+        if [[ -n "$qos_name" ]]; then
+            sbatch_cmd+=(--qos="$qos_name")
+        fi
+        sbatch_cmd+=("$(dirname "$0")/$job_script")
+        job_id=$("${sbatch_cmd[@]}" | awk '{print $4}')
     fi
     
     if [[ -n "$job_id" ]]; then

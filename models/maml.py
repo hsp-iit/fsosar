@@ -41,6 +41,10 @@ class MAML(nn.Module):
         # Meta-learnable classifier (this will be adapted during meta-learning)
         self.classifier = nn.Linear(self.feature_dim, self.way)
         
+        # Ensure classifier parameters require gradients for meta-learning
+        for param in self.classifier.parameters():
+            param.requires_grad_(True)
+        
         # MAML specific parameters
         self.inner_lr = config.get("inner_lr", 0.01)
         self.inner_steps = config.get("inner_steps", 5)
@@ -120,14 +124,18 @@ class MAML(nn.Module):
         # Use mean pooling across temporal dimension to get video-level features
         video_features = aggregated_features.mean(dim=1)  # (batch_size, feature_dim)
         
+        # Ensure features require gradients for meta-learning
+        if self.training:
+            video_features = video_features.requires_grad_(True)
+        
         return video_features
 
     def adapt_classifier(self, support_features, support_labels):
         """Adapt the classifier using MAML inner loop updates"""
-        # Clone classifier parameters for adaptation
+        # Clone classifier parameters for adaptation with gradient tracking
         adapted_params = {}
         for name, param in self.classifier.named_parameters():
-            adapted_params[name] = param.clone()
+            adapted_params[name] = param.clone().requires_grad_(True)
         
         # Inner loop adaptation
         for step in range(self.inner_steps):
@@ -150,6 +158,8 @@ class MAML(nn.Module):
             for (name, param), grad in zip(adapted_params.items(), grads):
                 if grad is not None:
                     adapted_params[name] = param - self.inner_lr * grad
+                    # Ensure the updated parameter still requires gradients
+                    adapted_params[name] = adapted_params[name].requires_grad_(True)
         
         return adapted_params
 

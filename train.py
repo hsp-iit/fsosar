@@ -15,13 +15,13 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
 from utils import is_address_in_use
 import copy
-from models import SAFSAR, STRM, ActionCLIP, MAML
+from models import SAFSAR, STRM, ActionCLIP, MAML, TAOSAR
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
-    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR", "ActionCLIP", "MAML"], help='Model name')
+    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR", "ActionCLIP", "MAML", "TAOSAR"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving48"], help='Data name')
     parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "objectosphere", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
@@ -101,6 +101,20 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         elif config["shot"] == 5:
             lr = 1e-4
             disc_weight = 1000
+    elif model_name == "TAOSAR":
+        if config["shot"] == 1:
+            if data_name in ["NTURGBD120"]:
+                lr = 1e-5
+            elif data_name in ["SSv2", "Diving48"]:
+                lr = 1e-5
+            elif data_name in ["UCF101"]:
+                lr = 5e-6
+            elif data_name in ["HMDB51"]:
+                lr = 5e-6
+            disc_weight = 100
+        elif config["shot"] == 5:
+            lr = 1e-5
+            disc_weight = 1000
         
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
@@ -133,6 +147,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         model = ActionCLIP(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     elif model_name == "MAML":
         model = MAML(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    elif model_name == "TAOSAR":
+        model = TAOSAR(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     else:
         raise ValueError(f"Unknown model: {model_name}")
     
@@ -176,6 +192,9 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         optimizer = torch.optim.Adam(model_param, lr=lr)
         scheduler = None
     elif model_name == "MAML":
+        optimizer = torch.optim.Adam(model_param, lr=lr)
+        scheduler = None
+    elif model_name == "TAOSAR":
         optimizer = torch.optim.Adam(model_param, lr=lr)
         scheduler = None
     else:
@@ -255,6 +274,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                         rescale_function = lambda x: (x+1)/2
                     if model_name == "MAML":
                         rescale_function = lambda x: (x+1)/2
+                    if model_name == "TAOSAR":
+                        rescale_function = lambda x: (x+1)/2
                 else:
                     rescale_function = None
                 unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix, rescale_function)
@@ -293,7 +314,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 if model_name == "STRM":
                     scaled_similarity_matrix = torch.exp(similarity_matrix)
                     # acc_target = all_labels
-                elif model_name in ["SAFSAR", "ActionCLIP", "MAML"]:
+                elif model_name in ["SAFSAR", "ActionCLIP", "MAML", "TAOSAR"]:
                     scaled_similarity_matrix = (similarity_matrix + 1)/2
                     # acc_target = true_target_labels
                 if os_loss == "gc":

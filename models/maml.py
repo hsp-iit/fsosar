@@ -253,7 +253,7 @@ class MAML(nn.Module):
             l2_loss = 0.
 
         self.debug_data = {
-            "similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
+            "similarity_matrix": wandb.Table(columns=list(range(similarity_matrix.shape[-1])), data=similarity_matrix.detach().cpu().numpy().tolist()),
             "true_target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None]),
             "similarity_matrix_mean": similarity_matrix.mean().item()
         }

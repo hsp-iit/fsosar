@@ -124,14 +124,17 @@ class MAML(nn.Module):
         # Use mean pooling across temporal dimension to get video-level features
         video_features = aggregated_features.mean(dim=1)  # (batch_size, feature_dim)
         
-        # Ensure features require gradients for meta-learning
-        if self.training:
-            video_features = video_features.requires_grad_(True)
+        # Ensure features require gradients for meta-learning (always enable for MAML)
+        video_features = video_features.requires_grad_(True)
         
         return video_features
 
     def adapt_classifier(self, support_features, support_labels):
         """Adapt the classifier using MAML inner loop updates"""
+        # Ensure support features have gradients enabled for meta-learning
+        if not support_features.requires_grad:
+            support_features = support_features.requires_grad_(True)
+        
         # Clone classifier parameters for adaptation with gradient tracking
         adapted_params = {}
         for name, param in self.classifier.named_parameters():
@@ -145,10 +148,11 @@ class MAML(nn.Module):
             # Compute loss
             loss = F.cross_entropy(logits, support_labels)
             
-            # Compute gradients
+            # Compute gradients with respect to adapted parameters
+            grad_params = list(adapted_params.values())
             grads = torch.autograd.grad(
                 loss, 
-                adapted_params.values(), 
+                grad_params, 
                 create_graph=not self.first_order,
                 retain_graph=True,
                 allow_unused=True
@@ -158,8 +162,11 @@ class MAML(nn.Module):
             for (name, param), grad in zip(adapted_params.items(), grads):
                 if grad is not None:
                     adapted_params[name] = param - self.inner_lr * grad
-                    # Ensure the updated parameter still requires gradients
-                    adapted_params[name] = adapted_params[name].requires_grad_(True)
+                else:
+                    # If no gradient, keep the parameter unchanged but ensure it requires grad
+                    adapted_params[name] = param.clone()
+                # Ensure the updated parameter still requires gradients
+                adapted_params[name] = adapted_params[name].requires_grad_(True)
         
         return adapted_params
 

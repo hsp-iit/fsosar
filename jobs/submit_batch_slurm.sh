@@ -23,14 +23,14 @@ reservation_name="sberti_14"  # sberti_14 Set to "" to disable reservation usage
 qos_name="resv1"              # resv1 Set to "" to disable qos usage
 
 # Job batching configuration
-jobs_with_reservation=4    # Number of jobs to submit with reservation
-jobs_without_reservation=1  # Number of jobs to submit without reservation
+jobs_with_reservation=16    # Number of jobs to submit with reservation
+jobs_without_reservation=6  # Number of jobs to submit without reservation
 
 # Define models to test (can be customized)
-models=("ActionCLIP")
+models=("MAML")
 
 # Define datasets to test (can be customized)
-datasets=("SSv2")
+datasets=("SSv2" "HMDB51" "UCF101" "NTURGBD120" "Diving48")
 
 # Define OS losses to test (can be customized)
 os_losses=("softmax" "eos" "discriminator" "gc")
@@ -40,7 +40,7 @@ job_script="train_batch_slurm.sh"
 
 # SLURM job configuration (can be customized)
 partition="gpuv"
-time_limit="12:00:00"
+time_limit="18:00:00"
 cpus_per_task=4
 gpus=1
 memory="32G"

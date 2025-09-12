@@ -32,6 +32,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     config["model_name"] = model_name
     config["data_name"] = data_name
     config["os_loss"] = os_loss
+    test_eval = False
     if config["ddp"]:  # When training more models on more GPU on a single machine, DDP is needed for performance
         setup(rank, world_size, set_seeds=config["eval_only"], port=port)
     # Create directory for saving checkpoints
@@ -379,7 +380,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                         print(train_results)
 
             # Enable evaluation
-            if training and ((step % eval_after_steps == 0 and step > 0) or config["eval_only"]):
+            if (training and ((step % eval_after_steps == 0 and step > 0)) or config["eval_only"]) or (total_step==0 and test_eval):
                 if config["ddp"]:
                     dist.barrier()
                 if rank == 0:
@@ -393,12 +394,14 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 average_meter.average()
                 average_meter = test_meter
                 training = False
-                torch.set_grad_enabled(False)
+                if model_name != "MAML":
+                    torch.set_grad_enabled(False)
                 step = 0
+                total_step += 1
                 break  # Break out of the for loop to restart with the new dataloader
 
             # Disable evaluation
-            if not training and step == config["n_eval_steps"]:
+            if (not training and step == config["n_eval_steps"]) or (total_step==5 and test_eval):
                 if config["ddp"]:
                     dist.barrier()
                 model_attributes.set_train()
@@ -428,6 +431,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 training = True
                 torch.set_grad_enabled(True)
                 step = 0
+                total_step += 1
                 if config["exit_after_eval"]:
                     exit(0)
                 else:

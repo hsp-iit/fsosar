@@ -8,7 +8,7 @@
     "eval_after_steps": 20000,
     "exit_after_eval": true,
     "way": 5,
-    "seq_len": 16,
+    "seq_len": 8,
     "debug_loader": false,
     "query_per_class_test": 1
 }

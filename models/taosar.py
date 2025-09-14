@@ -11,18 +11,40 @@ from transformers import AutoImageProcessor, AutoModelForVideoClassification
 import math
 
 class TemporalConsistencyModule(nn.Module):
-    """Simplified temporal consistency analysis for memory efficiency"""
-    def __init__(self, feature_dim, window_size=2):
+    """Enhanced temporal consistency analysis with window-based analysis"""
+    def __init__(self, feature_dim, window_size=3):
         super().__init__()
         self.window_size = window_size
         self.feature_dim = feature_dim
         
-        # Simplified consistency scoring
+        # Multi-scale consistency analysis
+        self.local_consistency = nn.Sequential(
+            nn.Conv1d(feature_dim, feature_dim // 2, kernel_size=3, padding=1),
+            nn.BatchNorm1d(feature_dim // 2),
+            nn.GELU(),
+            nn.Conv1d(feature_dim // 2, feature_dim // 4, kernel_size=3, padding=1),
+            nn.BatchNorm1d(feature_dim // 4),
+            nn.GELU()
+        )
+        
+        # Enhanced consistency scoring network
         self.consistency_net = nn.Sequential(
+            nn.Linear(feature_dim + feature_dim // 4, feature_dim),
+            nn.LayerNorm(feature_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(feature_dim, feature_dim // 2),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(feature_dim // 2, 1),
             nn.Sigmoid()
+        )
+        
+        # Temporal attention for consistency weighting
+        self.temporal_attention = nn.MultiheadAttention(
+            embed_dim=feature_dim,
+            num_heads=4,
+            dropout=0.1,
+            batch_first=True
         )
     
     def forward(self, frame_features):
@@ -34,29 +56,70 @@ class TemporalConsistencyModule(nn.Module):
         """
         batch_size, seq_len, feature_dim = frame_features.shape
         
-        # Simple temporal variance analysis
         if seq_len > 1:
-            temporal_var = frame_features.var(dim=1)  # Variance across time
-            consistency_score = self.consistency_net(temporal_var).squeeze(1)
-            # Invert variance - lower variance means higher consistency
+            # Ensure frame_features has consistent dtype with attention weights
+            frame_features = frame_features.to(self.temporal_attention.in_proj_weight.dtype)
+            
+            # Apply temporal attention
+            attended_features, _ = self.temporal_attention(
+                frame_features, frame_features, frame_features
+            )
+            
+            # Local consistency analysis using convolution
+            features_transposed = attended_features.transpose(1, 2)  # [B, D, T]
+            # Ensure dtype consistency for Conv1d
+            features_transposed = features_transposed.to(self.local_consistency[0].weight.dtype)
+            local_features = self.local_consistency(features_transposed)  # [B, D/4, T]
+            local_features = local_features.transpose(1, 2)  # [B, T, D/4]
+            
+            # Global temporal variance
+            temporal_var = attended_features.var(dim=1)  # Variance across time
+            
+            # Combine local and global features
+            local_pooled = local_features.mean(dim=1)  # [B, D/4]
+            combined_features = torch.cat([temporal_var, local_pooled], dim=1)  # [B, D + D/4]
+            
+            # Ensure combined_features has the same dtype as the network weights
+            combined_features = combined_features.to(self.consistency_net[0].weight.dtype)
+            consistency_score = self.consistency_net(combined_features).squeeze(1)
+            
+            # Higher consistency for lower variance (invert the score)
             consistency_score = 1.0 - consistency_score
         else:
-            consistency_score = torch.ones(batch_size, device=frame_features.device)
+            consistency_score = torch.ones(batch_size, device=frame_features.device, dtype=frame_features.dtype)
         
         return consistency_score
 
 class CrossFrameUncertaintyNet(nn.Module):
-    """Simplified uncertainty estimation for memory efficiency"""
-    def __init__(self, feature_dim, num_heads=4):
+    """Enhanced uncertainty estimation with attention mechanism"""
+    def __init__(self, feature_dim, num_heads=8):
         super().__init__()
         self.feature_dim = feature_dim
         self.num_heads = num_heads
         
-        # Simplified uncertainty estimation
+        # Temporal attention for uncertainty estimation
+        self.temporal_attention = nn.MultiheadAttention(
+            embed_dim=feature_dim,
+            num_heads=num_heads,
+            dropout=0.1,
+            batch_first=True
+        )
+        
+        # Enhanced uncertainty estimation network
         self.uncertainty_estimator = nn.Sequential(
+            nn.Linear(feature_dim, feature_dim),
+            nn.LayerNorm(feature_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(feature_dim, feature_dim // 2),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(feature_dim // 2, 1),
+            nn.Sigmoid()
+        )
+        
+        # Frame-level uncertainty for aggregation
+        self.frame_uncertainty = nn.Sequential(
+            nn.Linear(feature_dim, 1),
             nn.Sigmoid()
         )
     
@@ -69,23 +132,63 @@ class CrossFrameUncertaintyNet(nn.Module):
         """
         batch_size, seq_len, feature_dim = frame_features.shape
         
-        # Simple pooling-based uncertainty
-        pooled_features = frame_features.mean(dim=1)  # Global average pooling
-        uncertainty = self.uncertainty_estimator(pooled_features).squeeze(1)
+        # Ensure frame_features has consistent dtype with attention weights
+        frame_features = frame_features.to(self.temporal_attention.in_proj_weight.dtype)
+        
+        # Apply temporal attention to capture frame relationships
+        attended_features, attention_weights = self.temporal_attention(
+            frame_features, frame_features, frame_features
+        )
+        
+        # Compute frame-level uncertainties
+        frame_uncertainties = self.frame_uncertainty(attended_features).squeeze(-1)  # [B, T]
+        
+        # Weighted pooling based on attention and uncertainty
+        attention_mean = attention_weights.mean(dim=1)  # [B, T]
+        combined_weights = attention_mean * (1.0 + frame_uncertainties)  # Higher uncertainty gets more weight
+        weighted_features = (attended_features * combined_weights.unsqueeze(-1)).sum(dim=1)
+        
+        # Ensure features have the same dtype as the network weights
+        weighted_features = weighted_features.to(self.uncertainty_estimator[0].weight.dtype)
+        uncertainty = self.uncertainty_estimator(weighted_features).squeeze(1)
         
         return uncertainty
 
 class MotionAwareRejectionHead(nn.Module):
-    """Simplified rejection mechanism for memory efficiency"""
+    """Enhanced rejection mechanism with sophisticated temporal analysis"""
     def __init__(self, feature_dim, motion_threshold=0.1):
         super().__init__()
         self.feature_dim = feature_dim
         self.motion_threshold = motion_threshold
         
-        # Simplified rejection network
+        # Temporal gradient computation for motion analysis
+        self.temporal_conv = nn.Conv1d(
+            in_channels=feature_dim,
+            out_channels=feature_dim // 2,
+            kernel_size=3,
+            padding=1
+        )
+        
+        # Motion pattern analysis
+        self.motion_analyzer = nn.Sequential(
+            nn.Linear(feature_dim // 2, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 32),
+            nn.GELU(),
+            nn.Linear(32, 1),
+            nn.Sigmoid()
+        )
+        
+        # Enhanced rejection network with more sophisticated fusion
         self.rejection_net = nn.Sequential(
-            nn.Linear(feature_dim + 2, 32),  # features + consistency + uncertainty
-            nn.ReLU(),
+            nn.Linear(5, 64),  # motion_intensity + motion_complexity + consistency + uncertainty + temporal_stability
+            nn.LayerNorm(64),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 32),
+            nn.GELU(),
             nn.Linear(32, 1),
             nn.Sigmoid()
         )
@@ -101,72 +204,141 @@ class MotionAwareRejectionHead(nn.Module):
         """
         batch_size, seq_len, feature_dim = frame_features.shape
         
-        # Simple motion analysis - compute temporal variance
         if seq_len > 1:
-            motion_variance = frame_features.var(dim=1).mean(dim=1)  # Average variance across features
+            # Ensure frame_features has consistent dtype
+            frame_features = frame_features.to(self.temporal_conv.weight.dtype)
+            
+            # Compute temporal gradients for motion analysis
+            frame_features_transposed = frame_features.transpose(1, 2)  # [B, D, T]
+            temporal_gradients = self.temporal_conv(frame_features_transposed)  # [B, D/2, T]
+            temporal_gradients = temporal_gradients.transpose(1, 2)  # [B, T, D/2]
+            
+            # Motion intensity: average magnitude of temporal changes
+            motion_intensity = temporal_gradients.abs().mean(dim=[1, 2])  # [B]
+            
+            # Motion complexity: variance in temporal gradients
+            motion_complexity = temporal_gradients.var(dim=1).mean(dim=1)  # [B]
+            
+            # Motion pattern analysis
+            motion_features = temporal_gradients.mean(dim=1)  # [B, D/2]
+            motion_pattern_score = self.motion_analyzer(motion_features).squeeze(1)  # [B]
+            
+            # Temporal stability: consistency of frame-to-frame changes
+            frame_diffs = torch.diff(frame_features, dim=1)  # [B, T-1, D]
+            temporal_stability = 1.0 - frame_diffs.norm(dim=2).var(dim=1)  # [B] (higher = more stable)
         else:
-            motion_variance = torch.zeros(batch_size, device=frame_features.device)
+            # Single frame: no motion information available
+            motion_intensity = torch.zeros(batch_size, device=frame_features.device, dtype=frame_features.dtype)
+            motion_complexity = torch.zeros(batch_size, device=frame_features.device, dtype=frame_features.dtype)
+            motion_pattern_score = torch.zeros(batch_size, device=frame_features.device, dtype=frame_features.dtype)
+            temporal_stability = torch.ones(batch_size, device=frame_features.device, dtype=frame_features.dtype)
         
-        # Combine all rejection cues
-        rejection_input = torch.cat([
-            motion_variance.unsqueeze(1),
-            consistency_score.unsqueeze(1),
-            uncertainty_score.unsqueeze(1)
+        # Combine all rejection cues with enhanced feature set
+        rejection_input = torch.stack([
+            motion_intensity,
+            motion_complexity,
+            consistency_score,
+            uncertainty_score,
+            temporal_stability
         ], dim=1)
         
+        # Ensure rejection_input has the same dtype as the network weights
+        rejection_input = rejection_input.to(self.rejection_net[0].weight.dtype)
         rejection_score = self.rejection_net(rejection_input).squeeze(1)
         
         return rejection_score
 
 class TemporalPrototypeTracker(nn.Module):
-    """Maintains and updates prototypes considering temporal dynamics"""
+    """Enhanced prototype tracker with cross-attention and temporal dynamics"""
     def __init__(self, feature_dim, num_prototypes):
         super().__init__()
         self.feature_dim = feature_dim
         self.num_prototypes = num_prototypes
         
-        # Prototype update network
+        # Cross-attention for support-query interaction
+        self.cross_attention = nn.MultiheadAttention(
+            embed_dim=feature_dim,
+            num_heads=8,
+            dropout=0.1,
+            batch_first=True
+        )
+        
+        # Enhanced prototype update network
         self.prototype_updater = nn.Sequential(
+            nn.Linear(feature_dim * 2, feature_dim * 2),
+            nn.LayerNorm(feature_dim * 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(feature_dim * 2, feature_dim),
-            nn.ReLU(),
-            nn.Linear(feature_dim, feature_dim),
+            nn.LayerNorm(feature_dim),
             nn.Tanh()
         )
         
-        # Temporal importance weighting
+        # Enhanced temporal importance weighting
         self.temporal_weighting = nn.Sequential(
+            nn.Linear(feature_dim, feature_dim),
+            nn.LayerNorm(feature_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(feature_dim, feature_dim // 2),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(feature_dim // 2, 1),
             nn.Sigmoid()
         )
+        
+        # Prototype refinement network
+        self.prototype_refiner = nn.Sequential(
+            nn.Linear(feature_dim, feature_dim),
+            nn.LayerNorm(feature_dim),
+            nn.GELU(),
+            nn.Linear(feature_dim, feature_dim)
+        )
     
-    def forward(self, support_features, support_labels):
+    def forward(self, support_features, support_labels, query_features=None):
         """
         Args:
             support_features: (batch_size, feature_dim) - temporal-aggregated support features
             support_labels: (batch_size,)
+            query_features: (batch_size, feature_dim) - optional query features for cross-attention
         Returns:
             prototypes: (num_classes, feature_dim)
         """
         prototypes = []
         unique_labels = support_labels.unique()
         
+        # Apply cross-attention if query features are available
+        if query_features is not None:
+            # Ensure consistent dtypes for cross-attention
+            support_features = support_features.to(self.cross_attention.in_proj_weight.dtype)
+            query_features = query_features.to(self.cross_attention.in_proj_weight.dtype)
+            
+            support_features_attended, _ = self.cross_attention(
+                support_features.unsqueeze(0),  # Add batch dim for attention
+                query_features.unsqueeze(0),
+                query_features.unsqueeze(0)
+            )
+            support_features = support_features_attended.squeeze(0)
+        
         for label in unique_labels:
             mask = support_labels == label
             class_features = support_features[mask]
             
-            # Compute temporal importance weights
+            # Ensure class_features has the same dtype as the network weights
+            class_features = class_features.to(self.temporal_weighting[0].weight.dtype)
+            
+            # Compute enhanced temporal importance weights
             temporal_weights = self.temporal_weighting(class_features)
             weighted_features = class_features * temporal_weights
             
-            # Create prototype
+            # Create initial prototype
             if len(class_features) > 1:
                 # Use weighted average
                 prototype = weighted_features.sum(dim=0) / temporal_weights.sum()
             else:
                 prototype = class_features.squeeze(0)
             
+            # Refine prototype through additional network
+            prototype = self.prototype_refiner(prototype)
             prototypes.append(prototype)
         
         return torch.stack(prototypes, dim=0)
@@ -183,8 +355,8 @@ class TAOSAR(nn.Module):
         self.query_per_class_test = config["query_per_class_test"]
         self.train_unique_classes = config["train_unique_classes"]
         
-        # Feature extractor backbone - use ResNet18 for memory efficiency
-        self.backbone_type = config.get("backbone", "resnet18")
+        # Feature extractor backbone - use more powerful ResNet50 for better performance
+        self.backbone_type = config.get("backbone", "resnet50")  # Changed from resnet18
         self.feature_extractor = self._build_feature_extractor()
         
         # Distribute feature extractor for 5-shot training
@@ -194,31 +366,34 @@ class TAOSAR(nn.Module):
         # Get feature dimension from the backbone
         self.feature_dim = self._get_feature_dim()
         
-        # Reduced multi-scale temporal processing for memory efficiency
-        self.temporal_scales = [4]  # Use single scale for memory efficiency
+        # Enhanced multi-scale temporal processing for better temporal modeling
+        self.temporal_scales = [2, 4, 8]  # Keep max 8 frames as requested
         self.scale_processors = nn.ModuleList([
             self._build_transformer(
                 self.feature_dim,
-                config.get("num_layers_temporal", 1),  # Reduced layers
-                config.get("num_heads", 4),  # Reduced heads
-                config.get("intermediate_size", 1024)  # Reduced size
+                config.get("num_layers_temporal", 3),  # Keep 3 layers
+                config.get("num_heads", 8),  # Keep 8 heads
+                config.get("intermediate_size", 2048)  # Keep reasonable size
             ) for _ in self.temporal_scales
         ])
         
-        # Scale fusion network - simplified for single scale
+        # Enhanced scale fusion network for multi-scale features
         if len(self.temporal_scales) > 1:
             self.scale_fusion = nn.Sequential(
-                nn.Linear(self.feature_dim * len(self.temporal_scales), self.feature_dim),
-                nn.ReLU(),
-                nn.Linear(self.feature_dim, self.feature_dim)
+                nn.Linear(self.feature_dim * len(self.temporal_scales), self.feature_dim * 2),
+                nn.LayerNorm(self.feature_dim * 2),
+                nn.GELU(),
+                nn.Dropout(0.1),
+                nn.Linear(self.feature_dim * 2, self.feature_dim),
+                nn.LayerNorm(self.feature_dim)
             )
         else:
             # No fusion needed for single scale
             self.scale_fusion = nn.Identity()
         
-        # TAOSAR-specific modules with reduced complexity
-        self.temporal_consistency = TemporalConsistencyModule(self.feature_dim, window_size=2)
-        self.uncertainty_estimator = CrossFrameUncertaintyNet(self.feature_dim, num_heads=4)
+        # Enhanced TAOSAR-specific modules with increased complexity
+        self.temporal_consistency = TemporalConsistencyModule(self.feature_dim, window_size=3)
+        self.uncertainty_estimator = CrossFrameUncertaintyNet(self.feature_dim, num_heads=8)
         self.motion_rejection = MotionAwareRejectionHead(self.feature_dim)
         self.prototype_tracker = TemporalPrototypeTracker(self.feature_dim, self.way)
         
@@ -272,17 +447,20 @@ class TAOSAR(nn.Module):
             d_model=hidden_size, 
             nhead=num_heads, 
             dim_feedforward=intermediate_size,
-            batch_first=True
+            dropout=0.1,
+            activation='gelu',
+            batch_first=True,
+            norm_first=True
         )
-        return TransformerEncoder(encoder_layer, num_layers=num_layers)
+        return TransformerEncoder(encoder_layer, num_layers=num_layers, enable_nested_tensor=False)
 
     def extract_features(self, videos):
         """Extract temporal features from videos with memory-efficient processing"""
         batch_size, seq_len, channels, height, width = videos.shape
         
-        # Process frames in smaller batches to save memory
+        # Process frames in reasonable chunks
         frame_features_list = []
-        chunk_size = min(8, batch_size * seq_len)  # Process 8 frames at a time
+        chunk_size = min(24, batch_size * seq_len)  # Process 24 frames at a time (reasonable increase)
         
         # Reshape to process all frames together
         frames = videos.view(-1, channels, height, width)
@@ -290,7 +468,7 @@ class TAOSAR(nn.Module):
         # Process frames in chunks to avoid memory overflow
         for i in range(0, frames.size(0), chunk_size):
             chunk = frames[i:i+chunk_size]
-            with torch.cuda.amp.autocast():  # Use mixed precision
+            with torch.amp.autocast('cuda'):  # Use mixed precision
                 chunk_features = self.feature_extractor(chunk)
                 # Global average pooling to get fixed-size features
                 chunk_features = F.adaptive_avg_pool2d(chunk_features, (1, 1))
@@ -318,7 +496,7 @@ class TAOSAR(nn.Module):
                 scale_frames = frame_features
             
             # Apply temporal transformer with gradient checkpointing
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 processed_scale = processor(scale_frames)
                 # Global temporal pooling
                 scale_feature = processed_scale.mean(dim=1)
@@ -339,7 +517,7 @@ class TAOSAR(nn.Module):
         support_set = support_set.reshape(-1, self.seq_len, 3, 224, 224)
         
         # Process support set
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda'):
             support_features, support_frame_features = self.extract_features(support_set)
         
         # Process target set
@@ -349,11 +527,11 @@ class TAOSAR(nn.Module):
             n_queries = target_set.shape[0]
         target_set = target_set.reshape(n_queries, self.seq_len, 3, 224, 224)
         
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda'):
             query_features, query_frame_features = self.extract_features(target_set)
         
-        # Get temporal-aware prototypes
-        prototypes = self.prototype_tracker(support_features, support_labels)
+        # Get enhanced temporal-aware prototypes with cross-attention
+        prototypes = self.prototype_tracker(support_features, support_labels, query_features)
         
         # Compute temporal consistency and uncertainty for queries (with reduced complexity)
         consistency_scores = self.temporal_consistency(query_frame_features)
@@ -362,9 +540,11 @@ class TAOSAR(nn.Module):
         # Compute similarities using temperature-scaled cosine similarity
         similarity_matrix = []
         for prototype in prototypes:
+            # Ensure both tensors have the same dtype
+            query_features_dtype = query_features.to(prototype.dtype)
             similarities = self.cosine_similarity(
-                query_features.unsqueeze(1), 
-                prototype.unsqueeze(0).unsqueeze(0)
+                query_features_dtype, 
+                prototype.unsqueeze(0).expand(query_features_dtype.size(0), -1)
             )
             similarity_matrix.append(similarities * self.temperature)
         
@@ -372,11 +552,12 @@ class TAOSAR(nn.Module):
         
         # Add garbage class if using open-set
         if self.gc:
+            query_features_dtype = query_features.to(self.garbage_prototype.dtype)
             garbage_similarity = self.cosine_similarity(
-                query_features.unsqueeze(1), 
-                self.garbage_prototype.unsqueeze(0)
+                query_features_dtype, 
+                self.garbage_prototype.expand(query_features_dtype.size(0), -1)
             ) * self.temperature
-            similarity_matrix = torch.cat([similarity_matrix, garbage_similarity], dim=-1)
+            similarity_matrix = torch.cat([similarity_matrix, garbage_similarity.unsqueeze(1)], dim=-1)
         
         # Motion-aware rejection for discriminator (simplified)
         if self.disc:
@@ -389,8 +570,11 @@ class TAOSAR(nn.Module):
 
         # Compute global logits for L2 loss
         if self.use_l2_loss:
-            support_global_logits = self.global_classification_layer(support_features)
-            query_global_logits = self.global_classification_layer(query_features)
+            # Ensure features have the same dtype as the global classification layer weights
+            support_features_casted = support_features.to(self.global_classification_layer.weight.dtype)
+            query_features_casted = query_features.to(self.global_classification_layer.weight.dtype)
+            support_global_logits = self.global_classification_layer(support_features_casted)
+            query_global_logits = self.global_classification_layer(query_features_casted)
         else:
             support_global_logits = 0.
             query_global_logits = 0.

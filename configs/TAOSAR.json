@@ -1,5 +1,5 @@
 {
-    "backbone": "resnet18",
+    "backbone": "resnet50",
     "hidden_size": 512,
     "num_layers_temporal": 1,
     "num_heads": 4,

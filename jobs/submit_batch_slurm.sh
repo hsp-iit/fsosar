@@ -27,7 +27,7 @@ jobs_with_reservation=16    # Number of jobs to submit with reservation
 jobs_without_reservation=6  # Number of jobs to submit without reservation
 
 # Define models to test (can be customized)
-models=("MAML")
+models=("TAOSAR")
 
 # Define datasets to test (can be customized)
 datasets=("SSv2" "HMDB51" "UCF101" "NTURGBD120" "Diving48")

@@ -114,7 +114,12 @@ class SAFSAR(nn.Module):
 
         # Add unknown class if GC
         if self.gc:
-            support_mm_features = torch.cat((support_mm_features, self.garbage_prototype), dim=0)
+            # Apply dropout to garbage prototype during training to prevent overfitting
+            if self.training:
+                garbage_proto_dropped = torch.nn.functional.dropout(self.garbage_prototype, p=0.3, training=True)
+            else:
+                garbage_proto_dropped = self.garbage_prototype
+            support_mm_features = torch.cat((support_mm_features, garbage_proto_dropped), dim=0)
 
         # Generate query prototypes
         if len(target_set.shape) == 4:  # n_q, seq_len, 224, 3, 224
@@ -142,11 +147,6 @@ class SAFSAR(nn.Module):
             query_features_aug.expand(-1, support_mm_features_aug.size(1), -1),
             support_mm_features_aug
         )
-
-        # Apply dropout to garbage class logits during training to prevent overfitting
-        if self.training and self.gc:
-            gc_dropout = torch.nn.functional.dropout(similarity_matrix[:, -1:], p=0.3, training=True)
-            similarity_matrix = torch.cat([similarity_matrix[:, :-1], gc_dropout], dim=-1)
 
         # If discriminator, use it
         if self.disc:

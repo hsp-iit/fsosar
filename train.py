@@ -88,7 +88,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         elif config["shot"] == 5:
             # Difficult datasets requires small discriminator weight
             if data_name in ["NTURGBD120", "SSv2", "Diving48"]:
-                disc_weight = 100
+                disc_weight = 10
             else:
                 disc_weight = 1000
             lr = 1e-5

@@ -86,8 +86,13 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 lr = 5e-7
             disc_weight = 100
         elif config["shot"] == 5:
+            # Difficult datasets requires small discriminator weight
+            if data_name in ["NTURGBD120", "SSv2", "Diving48"]:
+                disc_weight = 100
+            else:
+                disc_weight = 1000
             lr = 1e-5
-            disc_weight = 1000
+                
     elif model_name == "MAML":
         if config["shot"] == 1:
             if data_name in ["NTURGBD120"]:
@@ -101,7 +106,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             disc_weight = 100
         elif config["shot"] == 5:
             lr = 1e-4
-            disc_weight = 1000
+            disc_weight = 100
     elif model_name == "TAOSAR":
         if config["shot"] == 1:
             if data_name in ["NTURGBD120"]:

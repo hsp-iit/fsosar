@@ -143,6 +143,11 @@ class SAFSAR(nn.Module):
             support_mm_features_aug
         )
 
+        # Apply dropout to garbage class logits during training to prevent overfitting
+        if self.training and self.gc:
+            gc_dropout = torch.nn.functional.dropout(similarity_matrix[:, -1:], p=0.3, training=True)
+            similarity_matrix = torch.cat([similarity_matrix[:, :-1], gc_dropout], dim=-1)
+
         # If discriminator, use it
         if self.disc:
             all_prototypes_differences = query_features_aug.expand(-1, support_mm_features_aug.size(1), -1) - support_mm_features_aug
@@ -163,10 +168,14 @@ class SAFSAR(nn.Module):
         return {"similarity_matrix": similarity_matrix,
                 "support_global_logits": support_global_logits,
                 "query_global_logits": query_global_logits,
-                "disc_prob": disc_prob}
+                "disc_prob": disc_prob,
+                "support_features": support_features,
+                "query_features": query_features,
+                "support_mm_features_aug": support_mm_features_aug,
+                "query_features_aug": query_features_aug}
 
     def compute_known_losses(self, similarity_matrix, support_global_logits, query_global_logits,
-                           true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None, disc_prob=None):
+                           true_target_labels=None, target_labels=None, support_labels=None, batch_class_list=None, disc_prob=None, **kwargs):
         true_target_labels = target_labels  # if ordered in model. this is is the best way
         known_indices = true_target_labels != -1
         similarity_matrix_k = similarity_matrix[known_indices]
@@ -195,7 +204,7 @@ class SAFSAR(nn.Module):
     def get_debug_data(self):
         return self.debug_data
 
-    def compute_additional_metrics(self, similarity_matrix, support_global_logits, query_global_logits, support_labels, target_labels, batch_class_list, disc_prob=None):
+    def compute_additional_metrics(self, similarity_matrix, support_global_logits, query_global_logits, support_labels, target_labels, batch_class_list, disc_prob=None, **kwargs):
         known_indices = target_labels != -1
         if known_indices.sum() > 0:
             similarity_matrix_k = similarity_matrix[known_indices]
@@ -220,10 +229,163 @@ class SAFSAR(nn.Module):
 
         return {"global_support_acc": global_support_acc, "global_query_acc": global_query_acc}
 
-    def visual_debug(self, similarity_matrix=None, support_global_logits=None, query_global_logits=None, videodataset=None, support_labels=None, target_labels=None, batch_class_list=None, support_set=None, target_set=None, disc_prob=None, unknown_labels=None):
+    def visual_debug(self, similarity_matrix=None, support_global_logits=None, query_global_logits=None, videodataset=None, support_labels=None, target_labels=None, batch_class_list=None, support_set=None, target_set=None, disc_prob=None, unknown_labels=None, support_features=None, query_features=None, support_mm_features_aug=None, query_features_aug=None):
         import cv2
         import imageio
         import os
+        import matplotlib.pyplot as plt
+        from sklearn.manifold import TSNE
+        from sklearn.preprocessing import StandardScaler
+
+        os.makedirs(f'visual_debug/{self.debug_samples_counter}', exist_ok=True)
+
+        # t-SNE visualization of features
+        if support_mm_features_aug is not None and query_features_aug is not None:
+            # Prepare features for t-SNE
+            all_features = []
+            labels = []
+            colors = []
+            
+            # Add support features (augmented multimodal features)
+            # support_mm_features_aug has shape [n_queries, n_ways, feature_dim]
+            # We take the first query's support features (they should be identical across queries)
+            support_features_for_viz = support_mm_features_aug[0]  # [n_ways, feature_dim]
+            
+            # Add support features to visualization
+            for i, feat in enumerate(support_features_for_viz):
+                all_features.append(feat.detach().cpu().numpy())
+                class_name = videodataset.class_folders[int(batch_class_list[i])]
+                labels.append(f"Support: {class_name}")
+                colors.append(f"C{i}")  # Different color for each support class
+            
+            # Separate known and unknown queries
+            known_indices = target_labels != -1
+            unknown_indices = target_labels == -1
+            
+            # Add known query features (augmented)
+            if known_indices.sum() > 0:
+                query_features_aug_known = query_features_aug[known_indices].squeeze(1)  # Remove the singleton dimension
+                target_labels_known = target_labels[known_indices]
+                for i, feat in enumerate(query_features_aug_known):
+                    all_features.append(feat.detach().cpu().numpy())
+                    class_idx = target_labels_known[i].item()
+                    class_name = videodataset.class_folders[int(batch_class_list[class_idx])]
+                    labels.append(f"Known Query: {class_name}")
+                    colors.append(f"C{class_idx}")  # Same color as corresponding support class
+            
+            # Add unknown query features (augmented)
+            if unknown_indices.sum() > 0:
+                query_features_aug_unknown = query_features_aug[unknown_indices].squeeze(1)  # Remove the singleton dimension
+                # Get the actual indices where unknown_indices is True
+                unknown_idx_positions = torch.where(unknown_indices)[0].cpu()
+                # Convert unknown_labels to tensor if it's not already
+                if not isinstance(unknown_labels, torch.Tensor):
+                    unknown_labels_tensor = torch.tensor(unknown_labels)
+                else:
+                    unknown_labels_tensor = unknown_labels.cpu()
+                # Use the positions to index into unknown_labels
+                unknown_labels_subset = unknown_labels_tensor[unknown_idx_positions]
+                for i, feat in enumerate(query_features_aug_unknown):
+                    all_features.append(feat.detach().cpu().numpy())
+                    class_name = videodataset.class_folders[int(unknown_labels_subset[i])]
+                    labels.append(f"Unknown Query: {class_name}")
+                    colors.append('red')  # Red for unknown queries
+            
+            if len(all_features) > 1:
+                # Convert to numpy array and standardize
+                features_array = np.stack(all_features)
+                scaler = StandardScaler()
+                features_scaled = scaler.fit_transform(features_array)
+                
+                # Apply t-SNE
+                perplexity = min(30, len(features_array) - 1)  # Ensure perplexity < n_samples
+                tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+                features_2d = tsne.fit_transform(features_scaled)
+                
+                # Create the plot
+                plt.figure(figsize=(12, 8))
+                
+                # Plot support features
+                support_count = len(support_features_for_viz)
+                plt.scatter(features_2d[:support_count, 0], features_2d[:support_count, 1], 
+                           c=[colors[i] for i in range(support_count)], 
+                           marker='s', s=100, alpha=0.8, label='Support Features')
+                
+                # Plot known query features
+                known_start = support_count
+                known_count = known_indices.sum().item()
+                if known_count > 0:
+                    known_end = known_start + known_count
+                    plt.scatter(features_2d[known_start:known_end, 0], features_2d[known_start:known_end, 1], 
+                               c=[colors[i] for i in range(known_start, known_end)], 
+                               marker='o', s=60, alpha=0.8, label='Known Query Features')
+                
+                # Plot unknown query features
+                unknown_count = unknown_indices.sum().item()
+                if unknown_count > 0:
+                    unknown_start = known_start + known_count
+                    plt.scatter(features_2d[unknown_start:, 0], features_2d[unknown_start:, 1], 
+                               c='red', marker='^', s=60, alpha=0.8, label='Unknown Query Features')
+                
+                # Add text annotations
+                for i, (x, y) in enumerate(features_2d):
+                    if i < support_count:
+                        # Support features
+                        class_name = videodataset.class_folders[int(batch_class_list[i])]
+                        plt.annotate(f'S:{class_name}', (x, y), xytext=(5, 5), 
+                                   textcoords='offset points', fontsize=8, alpha=0.7)
+                    elif i < support_count + known_count:
+                        # Known queries
+                        query_idx = i - support_count
+                        class_idx = target_labels[known_indices][query_idx].item()
+                        class_name = videodataset.class_folders[int(batch_class_list[class_idx])]
+                        plt.annotate(f'K:{class_name}', (x, y), xytext=(5, 5), 
+                                   textcoords='offset points', fontsize=8, alpha=0.7)
+                    else:
+                        # Unknown queries
+                        query_idx = i - support_count - known_count
+                        # Get the actual indices where unknown_indices is True
+                        unknown_idx_positions = torch.where(unknown_indices)[0].cpu()
+                        # Convert unknown_labels to tensor if it's not already
+                        if not isinstance(unknown_labels, torch.Tensor):
+                            unknown_labels_tensor = torch.tensor(unknown_labels)
+                        else:
+                            unknown_labels_tensor = unknown_labels.cpu()
+                        # Use the positions to index into unknown_labels
+                        unknown_labels_subset_for_annotation = unknown_labels_tensor[unknown_idx_positions]
+                        class_name = videodataset.class_folders[int(unknown_labels_subset_for_annotation[query_idx])]
+                        plt.annotate(f'U:{class_name}', (x, y), xytext=(5, 5), 
+                                   textcoords='offset points', fontsize=8, alpha=0.7, color='red')
+                
+                plt.title('t-SNE Visualization of Features\n(S=Support, K=Known Query, U=Unknown Query)')
+                plt.xlabel('t-SNE Component 1')
+                plt.ylabel('t-SNE Component 2')
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+                
+                # Set axis limits with some padding to ensure all points and annotations are visible
+                x_min, x_max = features_2d[:, 0].min(), features_2d[:, 0].max()
+                y_min, y_max = features_2d[:, 1].min(), features_2d[:, 1].max()
+                x_padding = (x_max - x_min) * 0.15  # 15% padding
+                y_padding = (y_max - y_min) * 0.15  # 15% padding
+                plt.xlim(x_min - x_padding, x_max + x_padding)
+                plt.ylim(y_min - y_padding, y_max + y_padding)
+                
+                plt.tight_layout()
+                plt.savefig(f'visual_debug/{self.debug_samples_counter}/tsne_features.png', dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                # Save feature info to text file
+                with open(f'visual_debug/{self.debug_samples_counter}/tsne_info.txt', 'w') as f:
+                    f.write("t-SNE Feature Visualization Info\n")
+                    f.write("=" * 35 + "\n\n")
+                    f.write(f"Total features: {len(all_features)}\n")
+                    f.write(f"Support features: {support_count}\n")
+                    f.write(f"Known query features: {known_count}\n")
+                    f.write(f"Unknown query features: {unknown_count}\n\n")
+                    f.write("Feature Labels:\n")
+                    for i, label in enumerate(labels):
+                        f.write(f"{i}: {label}\n")
 
         # Save support set gif
         support_set = support_set.reshape(-1, self.seq_len, 224, 3, 224)

@@ -169,17 +169,17 @@ def setup(rank, world_size, set_seeds, port):
 
 def load_configs(model_name, data_name):
     cwd = os.getcwd()
-    if "steb6" in cwd:
+    if "/home/sberti" in cwd:
         local_or_server = "local"
-        datasets_path = "/home/steb6/datasets"
+        datasets_path = "/home/sberti"
         host = "local"
-        log_path = "."
+        log_path = "/home/sberti/logs"
     elif "iit.local" in cwd:
         local_or_server = "server"
         datasets_path = "/home/sberti_datasets"
         host = "gnode04"
         log_path = "."
-    elif "sberti" in cwd:
+    elif "/fastwork/sberti" in cwd:
         local_or_server = "server"
         datasets_path = "/fastwork/sberti"
         host = "franklin"

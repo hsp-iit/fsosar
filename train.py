@@ -33,6 +33,17 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     config["data_name"] = data_name
     config["os_loss"] = os_loss
     test_eval = False
+    if config["eval_only"]:
+        torch.manual_seed(rank)
+        torch.cuda.manual_seed(rank)
+        torch.cuda.manual_seed_all(rank)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.enabled = True
+        torch.cuda.empty_cache()
+        # Set seed for random module
+        random.seed(rank)
+        np.random.seed(rank)
     if config["ddp"]:  # When training more models on more GPU on a single machine, DDP is needed for performance
         setup(rank, world_size, set_seeds=config["eval_only"], port=port)
     # Create directory for saving checkpoints
@@ -186,7 +197,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         wandb.init(project="fsosar", config=config, name=f"{config['host']}_{checkpoint_path}")
         # wandb.watch(model, log="all")
 
-    # Define optimizer and scheduler depending on the model
+    # Define optimizer and scheduler depe/home/sberti/fsosar/checkpoints/sasfar_softmax_STEPS_36000_ACC_0.7409_os_acc_mss_0.6405.ptnding on the model
     model_param = filter(lambda p: p.requires_grad, model.parameters())
     if model_name == "SAFSAR":
         optimizer = torch.optim.Adam(model_param, lr=lr)

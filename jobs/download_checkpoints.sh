@@ -1,2 +1,4 @@
 scp sberti@fe02.franklin.iit.local:/fastwork/sberti/logs/SAFSAR_softmax_SSv2_20250218_104119/STEPS_36000_ACC_0.7409_os_acc_mss_0.6405.pt
 scp sberti@fe02.franklin.iit.local:/fastwork/sberti/logs/SAFSAR_discriminator_SSv2_20250218_104119/STEPS_36000_ACC_0.7788_os_acc_0.7353.pt
+
+scp sberti@fe02.franklin.iit.local:/fastwork/sberti/SSv2

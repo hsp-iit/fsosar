@@ -5,14 +5,12 @@ channels:
   - conda-forge
 dependencies:
   - python
-  - pytorch
-  - torchvision
-  - torchaudio
-  - pytorch-cuda
   - transformers
   - scikit-learn
   - wandb
   - matplotlib
+  - opencv
+  - pip
   - pip:
-    - pytorch
-prefix: /fastwork/sberti/envs/
+    - git+https://github.com/openai/CLIP.git
+    - imageio

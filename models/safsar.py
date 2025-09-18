@@ -17,10 +17,10 @@ class SAFSAR(nn.Module):
         for param in self.model.videomae.embeddings.parameters():
             param.requires_grad = False
         # Distribute feature extractor for 5-shot training
-        if dp:
-            # Copy the weight of self.model.fc_norm such that we can optimize them
-            self.fc_norm = copy.deepcopy(self.model.fc_norm)
-            self.model = torch.nn.DataParallel(self.model)
+        # Copy the weight of self.model.fc_norm such that we can optimize them
+        self.fc_norm = copy.deepcopy(self.model.fc_norm)
+        # distribute the model over multiple GPUs (cant train without it)
+        self.model = torch.nn.DataParallel(self.model)
         self.way = config["way"]
         self.shot = config["shot"]
         self.seq_len = config["seq_len"]
@@ -51,8 +51,13 @@ class SAFSAR(nn.Module):
 
         if gc:
             self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
-        # elif disc:  if I initialize it everytime, I dont break the pytorch seed with softmax
-        self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
+        
+        # Only initialize discriminator when actually needed
+        if disc:
+            self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
+        else:
+            self.discriminator = None
+            
         self.gc = gc
         self.disc = disc
 
@@ -305,65 +310,33 @@ class SAFSAR(nn.Module):
                 # Create the plot
                 plt.figure(figsize=(12, 8))
                 
-                # Plot support features
+                # Plot support features (colored squares)
                 support_count = len(support_features_for_viz)
                 plt.scatter(features_2d[:support_count, 0], features_2d[:support_count, 1], 
                            c=[colors[i] for i in range(support_count)], 
                            marker='s', s=100, alpha=0.8, label='Support Features')
                 
-                # Plot known query features
+                # Plot known query features (green circles)
                 known_start = support_count
                 known_count = known_indices.sum().item()
                 if known_count > 0:
                     known_end = known_start + known_count
                     plt.scatter(features_2d[known_start:known_end, 0], features_2d[known_start:known_end, 1], 
-                               c=[colors[i] for i in range(known_start, known_end)], 
-                               marker='o', s=60, alpha=0.8, label='Known Query Features')
+                               c='green', marker='o', s=60, alpha=0.8, label='Known Query Features')
                 
-                # Plot unknown query features
+                # Plot unknown query features (red triangles)
                 unknown_count = unknown_indices.sum().item()
                 if unknown_count > 0:
                     unknown_start = known_start + known_count
                     plt.scatter(features_2d[unknown_start:, 0], features_2d[unknown_start:, 1], 
                                c='red', marker='^', s=60, alpha=0.8, label='Unknown Query Features')
-                
-                # Add text annotations
-                for i, (x, y) in enumerate(features_2d):
-                    if i < support_count:
-                        # Support features
-                        class_name = videodataset.class_folders[int(batch_class_list[i])]
-                        plt.annotate(f'S:{class_name}', (x, y), xytext=(5, 5), 
-                                   textcoords='offset points', fontsize=8, alpha=0.7)
-                    elif i < support_count + known_count:
-                        # Known queries
-                        query_idx = i - support_count
-                        class_idx = target_labels[known_indices][query_idx].item()
-                        class_name = videodataset.class_folders[int(batch_class_list[class_idx])]
-                        plt.annotate(f'K:{class_name}', (x, y), xytext=(5, 5), 
-                                   textcoords='offset points', fontsize=8, alpha=0.7)
-                    else:
-                        # Unknown queries
-                        query_idx = i - support_count - known_count
-                        # Get the actual indices where unknown_indices is True
-                        unknown_idx_positions = torch.where(unknown_indices)[0].cpu()
-                        # Convert unknown_labels to tensor if it's not already
-                        if not isinstance(unknown_labels, torch.Tensor):
-                            unknown_labels_tensor = torch.tensor(unknown_labels)
-                        else:
-                            unknown_labels_tensor = unknown_labels.cpu()
-                        # Use the positions to index into unknown_labels
-                        unknown_labels_subset_for_annotation = unknown_labels_tensor[unknown_idx_positions]
-                        class_name = videodataset.class_folders[int(unknown_labels_subset_for_annotation[query_idx])]
-                        plt.annotate(f'U:{class_name}', (x, y), xytext=(5, 5), 
-                                   textcoords='offset points', fontsize=8, alpha=0.7, color='red')
-                
-                plt.title('t-SNE Visualization of Features\n(S=Support, K=Known Query, U=Unknown Query)')
+                plt.title('t-SNE Visualization of Features')
                 plt.xlabel('t-SNE Component 1')
                 plt.ylabel('t-SNE Component 2')
                 plt.legend()
                 plt.grid(True, alpha=0.3)
                 
-                # Set axis limits with some padding to ensure all points and annotations are visible
+                # Set axis limits with some padding to ensure all points are visible
                 x_min, x_max = features_2d[:, 0].min(), features_2d[:, 0].max()
                 y_min, y_max = features_2d[:, 1].min(), features_2d[:, 1].max()
                 x_padding = (x_max - x_min) * 0.15  # 15% padding

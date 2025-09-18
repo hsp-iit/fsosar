@@ -33,6 +33,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     config["data_name"] = data_name
     config["os_loss"] = os_loss
     test_eval = False
+    
+    # seeds
     if config["eval_only"]:
         torch.manual_seed(rank)
         torch.cuda.manual_seed(rank)
@@ -41,11 +43,11 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.enabled = True
         torch.cuda.empty_cache()
-        # Set seed for random module
         random.seed(rank)
         np.random.seed(rank)
+    
     if config["ddp"]:  # When training more models on more GPU on a single machine, DDP is needed for performance
-        setup(rank, world_size, set_seeds=config["eval_only"], port=port)
+        setup(rank, world_size, set_seeds=True, port=port)
     # Create directory for saving checkpoints
     if rank == 0:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -138,7 +140,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
 
     # Data
     data_config = copy.deepcopy(config)  # Fix config, since GC may change way later and its recreated later
-    def setup_dataloader(train=True):
+    def setup_dataloader(train=not config["eval_only"]):
         videodataset = VideoDataset(DataArgs(data_config), preprocessing=model_name)
         videodataset.train = train
         if config["ddp"]:
@@ -184,13 +186,32 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         import collections
         old_weights = torch.load(config["checkpoint_path"])
         new_weights = collections.OrderedDict()
-        for k, v in old_weights.items():
-            new_name = k.replace("model.module.", "module.model.")
-            if "discriminator" in new_name or "mm_fusion_module" in new_name or "task_specific_learning_module" in new_name or "global_classification_layer" in new_name:
-                new_name = "module." + new_name
-            new_weights[new_name] = copy.deepcopy(v)
-        del old_weights
-        model.load_state_dict(new_weights, strict=False)
+        old_weights_set = set()
+        model_weights_set = set()
+        for k_, v_ in old_weights.items():
+            for k, v in model.named_parameters():
+                if k_ in k or k in k_:
+                    new_weights[k] = copy.deepcopy(v_)
+                    old_weights_set.add(k_)
+                    model_weights_set.add(k)
+        # to ensure that we used all weights of checkpoints and of the model
+        if(len(old_weights_set) != len(model_weights_set)):
+            print("Not corresponding weights:", old_weights_set.symmetric_difference(model_weights_set))
+        if model_name == "STRM":
+            model.load_state_dict(old_weights, strict=True)
+        else:
+            model.load_state_dict(new_weights, strict=True)
+        model_attributes.set_eval()
+
+    # Set seeds AFTER model initialization to ensure reproducible data loading
+    # regardless of model architecture differences (softmax vs discriminator)
+    if config["eval_only"]:
+        torch.manual_seed(rank)
+        torch.cuda.manual_seed(rank)
+        torch.cuda.manual_seed_all(rank)
+        random.seed(rank)
+        np.random.seed(rank)
+        print(f"Seeds set for reproducible data loading (model: {model_name}, os_loss: {os_loss})")
 
     # Initialize wandb
     if log_wandb and rank==0:
@@ -303,13 +324,40 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
-                model_attributes.visual_debug(**logits, videodataset=videodataset,
-                                                  support_labels=support_labels,
-                                                  target_labels=all_labels,
-                                                  batch_class_list=batch_class_list,
-                                                  support_set=support_set,
-                                                  target_set=all_images,
-                                                  unknown_labels=all_unknowns)
+                # Single episode t-SNE visualization
+                print("Creating t-SNE visualization for current episode...")
+                
+                # Handle all_unknowns which might be a tuple from zip operation
+                if isinstance(all_unknowns, tuple):
+                    all_unknowns_tensor = torch.stack(all_unknowns[:maximum_queries])
+                else:
+                    all_unknowns_tensor = all_unknowns
+                    
+                # Handle all_images which might be a tuple from zip operation  
+                if isinstance(all_images, tuple):
+                    all_images_tensor = torch.stack(all_images[:maximum_queries])
+                    all_images_tensor = all_images_tensor.reshape(-1, config["seq_len"], *img_shape)
+                else:
+                    all_images_tensor = all_images
+                
+                # Create visual debug with current episode data
+                if logits.get('query_features', None) is not None:
+                    model_attributes.visual_debug(
+                        similarity_matrix=similarity_matrix,
+                        videodataset=videodataset,
+                        support_labels=support_labels,
+                        target_labels=all_labels,
+                        batch_class_list=batch_class_list,
+                        support_set=support_set,
+                        target_set=all_images_tensor,
+                        unknown_labels=all_unknowns_tensor,
+                        support_features=logits.get('support_features', None),
+                        query_features=logits.get('query_features', None),
+                        support_mm_features_aug=logits.get('support_mm_features_aug', None),
+                        query_features_aug=logits.get('query_features_aug', None)
+                    )
+                
+                print("Single episode visual debug completed!")
 
             # Optimization
             known_losses.update(unknown_losses)

@@ -490,6 +490,9 @@ class STRM(nn.Module):
             self.discriminator = BinaryClassificationModelSTRM(1152).cuda()
         self.gc = gc
         self.disc = disc
+        
+        # Initialize debug counter for visual debugging
+        self.debug_samples_counter = 0
 
 
     def loss(self, test_logits_sample, test_labels, device):
@@ -579,7 +582,11 @@ class STRM(nn.Module):
 
         return_dict = {'similarity_matrix': logits,
                     'logits_post_pat': 0.1*split_first_dim_linear(sample_logits_post_pat, [NUM_SAMPLES, target_features.shape[0]]).squeeze(0),
-                    'disc_prob': disc_prob}
+                    'disc_prob': disc_prob,
+                    'support_features': context_features,  # 25 x 8 x 2048
+                    'query_features': target_features,     # 20 x 8 x 2048  
+                    'support_mm_features_aug': context_features_fr,  # 25 x 8 x 2048 (frame-enriched)
+                    'query_features_aug': target_features_fr}        # 20 x 8 x 2048 (frame-enriched)
 
         return return_dict  #, context_features  # Precomputed context features needed
 
@@ -634,3 +641,231 @@ class STRM(nn.Module):
 
     def set_eval(self):
         return
+
+    def visual_debug(self, similarity_matrix=None, support_global_logits=None, query_global_logits=None, videodataset=None, support_labels=None, target_labels=None, batch_class_list=None, support_set=None, target_set=None, disc_prob=None, unknown_labels=None, support_features=None, query_features=None, support_mm_features_aug=None, query_features_aug=None):
+        import cv2
+        import imageio
+        import os
+        import matplotlib.pyplot as plt
+        from sklearn.manifold import TSNE
+        from sklearn.preprocessing import StandardScaler
+        import numpy as np
+
+        os.makedirs(f'visual_debug/{self.debug_samples_counter}', exist_ok=True)
+
+        # t-SNE visualization of features
+        if support_mm_features_aug is not None and query_features_aug is not None:
+            # Prepare features for t-SNE
+            all_features = []
+            labels = []
+            colors = []
+            
+            # For STRM, we'll use the frame-enriched features and average across temporal dimension
+            # support_mm_features_aug: [n_support, seq_len, feature_dim] = [25, 8, 2048]
+            # query_features_aug: [n_queries, seq_len, feature_dim] = [20, 8, 2048]
+            
+            # Average support features across temporal dimension for visualization
+            support_features_for_viz = support_mm_features_aug.mean(dim=1)  # [25, 2048] -> [n_ways * n_shots, 2048]
+            
+            # Get unique support labels to organize by class
+            unique_labels = torch.unique(support_labels)
+            
+            # Add support features to visualization (organized by class)
+            support_idx = 0
+            for class_idx, class_label in enumerate(unique_labels):
+                class_mask = support_labels == class_label
+                class_support_features = support_features_for_viz[class_mask]
+                
+                for i, feat in enumerate(class_support_features):
+                    all_features.append(feat.detach().cpu().numpy())
+                    class_name = videodataset.class_folders[int(batch_class_list[class_idx])]
+                    labels.append(f"Support: {class_name}")
+                    colors.append(f"C{class_idx}")  # Different color for each support class
+            
+            # Separate known and unknown queries
+            known_indices = target_labels != -1
+            unknown_indices = target_labels == -1
+            
+            # Add known query features (frame-enriched, averaged across temporal dimension)
+            if known_indices.sum() > 0:
+                query_features_aug_known = query_features_aug[known_indices].mean(dim=1)  # Average across seq_len
+                target_labels_known = target_labels[known_indices]
+                for i, feat in enumerate(query_features_aug_known):
+                    all_features.append(feat.detach().cpu().numpy())
+                    class_idx = target_labels_known[i].item()
+                    class_name = videodataset.class_folders[int(batch_class_list[class_idx])]
+                    labels.append(f"Known Query: {class_name}")
+                    colors.append(f"C{class_idx}")  # Same color as corresponding support class
+            
+            # Add unknown query features (frame-enriched, averaged across temporal dimension)
+            if unknown_indices.sum() > 0:
+                query_features_aug_unknown = query_features_aug[unknown_indices].mean(dim=1)  # Average across seq_len
+                # Get the actual indices where unknown_indices is True
+                unknown_idx_positions = torch.where(unknown_indices)[0].cpu()
+                # Convert unknown_labels to tensor if it's not already
+                if not isinstance(unknown_labels, torch.Tensor):
+                    unknown_labels_tensor = torch.tensor(unknown_labels)
+                else:
+                    unknown_labels_tensor = unknown_labels.cpu()
+                # Use the positions to index into unknown_labels
+                unknown_labels_subset = unknown_labels_tensor[unknown_idx_positions]
+                for i, feat in enumerate(query_features_aug_unknown):
+                    all_features.append(feat.detach().cpu().numpy())
+                    class_name = videodataset.class_folders[int(unknown_labels_subset[i])]
+                    labels.append(f"Unknown Query: {class_name}")
+                    colors.append('red')  # Red for unknown queries
+            
+            if len(all_features) > 1:
+                # Convert to numpy array and standardize
+                features_array = np.stack(all_features)
+                scaler = StandardScaler()
+                features_scaled = scaler.fit_transform(features_array)
+                
+                # Apply t-SNE
+                perplexity = min(30, len(features_array) - 1)  # Ensure perplexity < n_samples
+                tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+                features_2d = tsne.fit_transform(features_scaled)
+                
+                # Create the plot
+                plt.figure(figsize=(12, 8))
+                
+                # Count support features
+                support_count = sum(len(support_features_for_viz[support_labels == label]) for label in unique_labels)
+                
+                # Plot support features (colored squares)
+                plt.scatter(features_2d[:support_count, 0], features_2d[:support_count, 1], 
+                           c=[colors[i] for i in range(support_count)], 
+                           marker='s', s=100, alpha=0.8, label='Support Features')
+                
+                # Plot known query features (circles with class colors)
+                known_start = support_count
+                known_count = known_indices.sum().item()
+                if known_count > 0:
+                    known_end = known_start + known_count
+                    # Use the class-specific colors for known queries
+                    known_colors = [colors[i] for i in range(known_start, known_end)]
+                    plt.scatter(features_2d[known_start:known_end, 0], features_2d[known_start:known_end, 1], 
+                               c=known_colors, marker='o', s=60, alpha=0.8, label='Known Query Features')
+                
+                # Plot unknown query features (black crosses)
+                unknown_count = unknown_indices.sum().item()
+                if unknown_count > 0:
+                    unknown_start = known_start + known_count
+                    plt.scatter(features_2d[unknown_start:, 0], features_2d[unknown_start:, 1], 
+                               c='black', marker='x', s=80, alpha=0.8, label='Unknown Query Features')
+                
+                plt.title('t-SNE Visualization of STRM Features')
+                plt.xlabel('t-SNE Component 1')
+                plt.ylabel('t-SNE Component 2')
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+                
+                # Set axis limits with some padding to ensure all points are visible
+                x_min, x_max = features_2d[:, 0].min(), features_2d[:, 0].max()
+                y_min, y_max = features_2d[:, 1].min(), features_2d[:, 1].max()
+                x_padding = (x_max - x_min) * 0.15  # 15% padding
+                y_padding = (y_max - y_min) * 0.15  # 15% padding
+                plt.xlim(x_min - x_padding, x_max + x_padding)
+                plt.ylim(y_min - y_padding, y_max + y_padding)
+                
+                plt.tight_layout()
+                plt.savefig(f'visual_debug/{self.debug_samples_counter}/tsne_features.png', dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                # Save feature info to text file
+                with open(f'visual_debug/{self.debug_samples_counter}/tsne_info.txt', 'w') as f:
+                    f.write("t-SNE Feature Visualization Info (STRM)\n")
+                    f.write("=" * 40 + "\n\n")
+                    f.write(f"Total features: {len(all_features)}\n")
+                    f.write(f"Support features: {support_count}\n")
+                    f.write(f"Known query features: {known_count}\n")
+                    f.write(f"Unknown query features: {unknown_count}\n\n")
+                    f.write("Feature Labels:\n")
+                    for i, label in enumerate(labels):
+                        f.write(f"{i}: {label}\n")
+
+        self.debug_samples_counter += 1          
+        return
+        # Save support set gif (similar to SAFSAR)
+        # support_set shape: [n_support, seq_len, H, W, C] - need to handle different input shapes
+        if support_set.dim() == 4:  # [n_support * seq_len, H, W, C]
+            support_set = support_set.reshape(-1, self.args["seq_len"], support_set.shape[1], support_set.shape[2], support_set.shape[3])
+        elif support_set.dim() == 5:  # [n_support, seq_len, H, W, C] 
+            pass  # Already correct shape
+        else:
+            # Try to reshape based on sequence length
+            total_frames = support_set.shape[0]
+            n_support = total_frames // self.args["seq_len"]
+            support_set = support_set.reshape(n_support, self.args["seq_len"], support_set.shape[1], support_set.shape[2], support_set.shape[3])
+        
+        concatenated_frames = []
+        for s in range(support_set.size(0)):
+            class_id = support_labels[s].item()
+            class_name = videodataset.class_folders[int(batch_class_list[class_id])]
+            single_video = support_set[s] * 255  # [seq_len, H, W, C]
+            single_video = single_video.detach().cpu().numpy().astype(np.uint8)
+            
+            # Ensure we have the right shape for concatenation [seq_len, H, W, C]
+            if single_video.shape[-1] != 3:  # If channels are not in the last dimension
+                if single_video.shape[1] == 3:  # Channels in dimension 1
+                    single_video = np.transpose(single_video, (0, 2, 3, 1))  # [seq_len, C, H, W] -> [seq_len, H, W, C]
+            
+            concatenated_frame = np.concatenate([single_video[i] for i in range(len(single_video))], axis=1)
+            text_img = np.ones((30, concatenated_frame.shape[1], 3), dtype=np.uint8) * 255
+            concatenated_frame = np.concatenate((text_img, concatenated_frame), axis=0)
+            concatenated_frames.append(concatenated_frame)
+
+        os.makedirs(f'visual_debug/{self.debug_samples_counter}', exist_ok=True)
+        imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/ss.gif', concatenated_frames, duration=250, loop=0)
+        with open(f'visual_debug/{self.debug_samples_counter}/ss.txt', 'w') as f:
+            for s in range(support_set.size(0)):
+                class_id = support_labels[s].item()
+                class_name = videodataset.class_folders[int(batch_class_list[class_id])]
+                f.write(f"Support {s}: Class {class_id} ({class_name})\n")
+
+        # Save query samples
+        # target_set shape handling similar to support_set
+        if target_set.dim() == 4:  # [n_queries * seq_len, H, W, C]
+            target_set = target_set.reshape(-1, self.args["seq_len"], target_set.shape[1], target_set.shape[2], target_set.shape[3])
+        elif target_set.dim() == 5:  # [n_queries, seq_len, H, W, C] 
+            pass  # Already correct shape
+        else:
+            # Try to reshape based on sequence length
+            total_frames = target_set.shape[0]
+            n_queries = total_frames // self.args["seq_len"]
+            target_set = target_set.reshape(n_queries, self.args["seq_len"], target_set.shape[1], target_set.shape[2], target_set.shape[3])
+            
+        predictions = torch.argmax(similarity_matrix, dim=-1)
+        accept_score = torch.nn.functional.softmax(similarity_matrix, dim=-1).max(dim=-1)[0]
+        
+        for q in range(target_set.size(0)):
+            query_label = target_labels[q].item()
+            if query_label == -1:
+                actual_class = int(unknown_labels[q])
+                query_class_name = videodataset.class_folders[actual_class]
+                res = "unknown"
+            else:
+                query_class_name = videodataset.class_folders[int(batch_class_list[query_label])]
+                res = "known"
+            
+            pred_class = predictions[q].item()
+            pred_class_name = videodataset.class_folders[int(batch_class_list[pred_class])]
+            
+            single_video = target_set[q] * 255  # [seq_len, H, W, C]
+            single_video = single_video.detach().cpu().numpy().astype(np.uint8)
+            
+            # Ensure we have the right shape for concatenation [seq_len, H, W, C]
+            if single_video.shape[-1] != 3:  # If channels are not in the last dimension
+                if single_video.shape[1] == 3:  # Channels in dimension 1
+                    single_video = np.transpose(single_video, (0, 2, 3, 1))  # [seq_len, C, H, W] -> [seq_len, H, W, C]
+            
+            concatenated_frame = np.concatenate([single_video[i] for i in range(len(single_video))], axis=1)
+            
+            # Add text information
+            text_img = np.ones((60, concatenated_frame.shape[1], 3), dtype=np.uint8) * 255
+            concatenated_frame = np.concatenate((text_img, concatenated_frame), axis=0)
+            
+            cur = q
+            imageio.mimsave(f'visual_debug/{self.debug_samples_counter}/{res}_{accept_score[cur]:.3f}_{query_class_name}_pred_{pred_class_name}.gif', [concatenated_frame], duration=250, loop=0)
+
+        self.debug_samples_counter += 1

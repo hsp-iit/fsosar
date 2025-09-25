@@ -108,16 +108,50 @@ def visualize_features(pkl_file, num_classes=None):
         class_mask = np.array(all_labels) == class_name
         num_features = np.sum(class_mask)
         
+        # Format class names with line breaks for better readability
+        if len(class_name) > 50:
+            # Split long names at spaces or underscores, keeping reasonable line length
+            words = class_name.replace('_', ' ').split()
+            lines = []
+            current_line = []
+            current_length = 0
+            
+            for word in words:
+                if current_length + len(word) + 1 <= 50:  # +1 for space, increased from 35 to 50
+                    current_line.append(word)
+                    current_length += len(word) + 1
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+                    current_length = len(word)
+            
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            display_name = '\n'.join(lines) + f'\n({num_features})'
+        else:
+            display_name = f'{class_name}\n({num_features})'
+        
         plt.scatter(features_2d[class_mask, 0], features_2d[class_mask, 1], 
-                   c=[colors[class_idx]], label=f'{class_name} ({num_features})', 
+                   c=[colors[class_idx]], label=display_name, 
                    s=60, alpha=0.7)
     
     plt.title(f't-SNE Visualization of Class Features\n{total_features} features from {len(unique_classes)} classes')
     plt.xlabel('t-SNE Component 1')
     plt.ylabel('t-SNE Component 2')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    # Improve legend layout for multi-line names
+    legend = plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9, 
+                       frameon=True, fancybox=True, shadow=True,
+                       handletextpad=0.5, columnspacing=1.0)
+    legend.get_frame().set_facecolor('white')
+    legend.get_frame().set_alpha(0.9)
+    
     plt.grid(True, alpha=0.3)
-    plt.tight_layout()
+    
+    # Adjust figure size and layout to accommodate even wider legend
+    plt.subplots_adjust(right=0.45)  # Maximum room for very wide legend text
     
     # Save the plot
     output_file = pkl_file.replace('.pkl', '_tsne.png')

@@ -49,6 +49,10 @@ class SAFSAR(nn.Module):
         self.alpha = config["alpha"]
         self.debug_samples_counter = 0
         self.classes_names = config["classes_names"]
+        self.save_features = config.get("save_features", False)
+        self.model_name = config.get("model_name", "SAFSAR")
+        self.dataset_name = config.get("data_name", "unknown_dataset")
+        self.os_loss_name = config.get("os_loss", "unknown_loss")
 
         if gc:
             self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
@@ -107,8 +111,8 @@ class SAFSAR(nn.Module):
             support_features_mean.append(support_features[support_labels == c].mean(dim=0))
         support_features_mean = torch.stack(support_features_mean)
         # add textual features
-        if self.use_textual_embedding:
-            textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[support_labels].long()]
+        if self.use_textual_embedding:  # since torch.unique() orders the results, we use torch.arange to get correctly the class names
+            textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[torch.arange(0, self.way).cuda()].long()]
             raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_features_mean, textual_embeddings)]
             support_mm_features = [self.mm_fusion_module(emb)[0] for emb in raw_support_mm_features]
             support_mm_features = torch.stack(support_mm_features)
@@ -116,13 +120,18 @@ class SAFSAR(nn.Module):
             support_mm_features = support_features_mean
 
         # Save features for later t-SNE analysis
-        if True:
+        if getattr(self, 'save_features', False):
             import pickle
             import os
             
-            # Create features directory
-            os.makedirs('saved_features', exist_ok=True)
-            filename = 'saved_features/class_features.pkl'
+            # Create features directory with structured path
+            model_name = getattr(self, 'model_name', 'SAFSAR')
+            dataset_name = getattr(self, 'dataset_name', 'unknown_dataset')
+            os_loss_name = getattr(self, 'os_loss_name', 'unknown_loss')
+            
+            features_dir = f'saved_features/{model_name}/{dataset_name}/{os_loss_name}'
+            os.makedirs(features_dir, exist_ok=True)
+            filename = f'{features_dir}/class_features.pkl'
             
             # Load existing data or create new dictionary
             if os.path.exists(filename):
@@ -133,7 +142,7 @@ class SAFSAR(nn.Module):
             
             # Add features organized by class name
             for i in range(len(support_mm_features)):
-                class_idx = support_labels[i].item()
+                class_idx = i
                 # Use the descriptive class names from self.classes_names
                 class_idx_int = int(batch_class_list[class_idx])
                 if class_idx_int < len(self.classes_names):

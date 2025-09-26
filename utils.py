@@ -430,3 +430,97 @@ def save_tsne_features(features, episode_class_names, model_name, dataset_name, 
     print(f"Features appended to {filename} - Total: {total_features} features across {len(class_feature_dict)} classes")
     
     return filename
+
+
+def visual_debug(similarity_matrix, support_set, target_set, support_labels, 
+                target_labels, batch_class_list, unknown_labels, videodataset, 
+                logits, debug_samples_counter, config):
+    """
+    Simplified visual debug function for both SAFSAR and STRM models
+    Creates GIF visualizations for debugging purposes
+    """
+    import imageio
+    import os
+    import numpy as np
+    import torch
+    
+    # Get configuration parameters (must exist)
+    way = config['way']
+    shot = config['shot']
+    query_per_class = config['query_per_class']
+    seq_len = config['seq_len']
+    disc_prob = logits.get('disc_prob', None)
+    
+    os.makedirs(f'visual_debug/{debug_samples_counter}', exist_ok=True)
+
+    # Generate GIF visualizations
+    if support_set is not None and target_set is not None:
+        # Save support set gif
+        support_set = support_set.reshape(-1, seq_len, 224, 3, 224)
+        support_set = support_set[torch.argsort(support_labels)]
+        support_set = support_set.reshape(way, shot, seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
+        concatenated_frames = []
+        support_classes = [videodataset.class_folders[int(batch_class_list[i])] for i in range(way)]
+
+        for i in range(way):
+            for j in range(shot):
+                frames = []
+                for k in support_set[i, j]:
+                    frame_rgb = k.cpu().numpy()
+                    frame_rgb = ((frame_rgb - frame_rgb.min()) / (frame_rgb.max() - frame_rgb.min()) * 255).astype(np.uint8)
+                    frames.append(frame_rgb)
+                concatenated_frames.append(frames)
+
+        concatenated_frames = np.stack([np.stack(x) for x in concatenated_frames])
+        concatenated_frames = concatenated_frames.reshape(way, shot, seq_len, 224, 224, 3)
+        concatenated_frames = np.concatenate(concatenated_frames, axis=2)
+        concatenated_frames = np.concatenate(concatenated_frames, axis=2)
+        imageio.mimsave(f'visual_debug/{debug_samples_counter}/ss.gif', concatenated_frames, duration=250, loop=0)
+        
+        with open(f'visual_debug/{debug_samples_counter}/ss.txt', 'w') as f:
+            for item in support_classes:
+                f.write("%s\n" % item)
+
+        # Analyze predictions for query visualization
+        if similarity_matrix is not None:
+            good_closed = similarity_matrix.argmax(dim=-1) == target_labels
+            if disc_prob is None:
+                accept_score = similarity_matrix.max(dim=-1).values.detach().cpu().numpy()
+            else:
+                accept_score = disc_prob.detach().cpu().numpy()
+            
+            true_open = target_labels != -1
+            pred_open = accept_score > 0.5
+
+            # Save queries gif
+            target_set = target_set.reshape(way, query_per_class, seq_len, 224, 3, 224).permute(0, 1, 2, 5, 3, 4)
+            query_labels = []
+            
+            for i in range(way):
+                for j in range(query_per_class):
+                    if target_labels[i*query_per_class+j] == -1:
+                        query_label = videodataset.class_folders[int(unknown_labels[i*query_per_class+j])]
+                    else:
+                        query_label = videodataset.class_folders[int(batch_class_list[target_labels[i*query_per_class+j]])]
+                    query_labels.append(query_label)
+                    
+                    concatenated_frame = []
+                    for k in target_set[i, j]:
+                        frame_rgb = k.cpu().numpy()
+                        frame_rgb = ((frame_rgb - frame_rgb.min()) / (frame_rgb.max() - frame_rgb.min()) * 255).astype(np.uint8)
+                        concatenated_frame.append(frame_rgb)
+                    
+                    # Determine classification result
+                    cur = i*query_per_class+j
+                    res = ""
+                    if true_open[cur] and pred_open[cur] and good_closed[cur]:
+                        res = "TP"
+                    elif not true_open[cur] and not pred_open[cur]:
+                        res = "TN"
+                    elif true_open[cur] and not pred_open[cur]:
+                        res = "FN"
+                    elif not true_open[cur] and pred_open[cur]:
+                        res = "FP"
+                    
+                    imageio.mimsave(f'visual_debug/{debug_samples_counter}/{res}_{accept_score[cur]:.4f}_{query_label}.gif', 
+                                   concatenated_frame, duration=250, loop=0)

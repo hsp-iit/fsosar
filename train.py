@@ -16,6 +16,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from utils import is_address_in_use
 import copy
 from models import SAFSAR, STRM, ActionCLIP, MAML, TAOSAR
+from utils import visual_debug
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
@@ -324,40 +325,16 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             
             # Visual debug must be called only during evaluation
             if config["visual_debug"] and not training and rank == 0:
-                # Single episode t-SNE visualization
-                print("Creating t-SNE visualization for current episode...")
+                # Handle tuple conversion for all_unknowns and all_images
+                unknowns_tensor = torch.stack(all_unknowns[:maximum_queries]) if isinstance(all_unknowns, tuple) else all_unknowns
+                images_tensor = all_images if not isinstance(all_images, tuple) else torch.stack(all_images[:maximum_queries]).reshape(-1, config["seq_len"], *img_shape)
                 
-                # Handle all_unknowns which might be a tuple from zip operation
-                if isinstance(all_unknowns, tuple):
-                    all_unknowns_tensor = torch.stack(all_unknowns[:maximum_queries])
-                else:
-                    all_unknowns_tensor = all_unknowns
-                    
-                # Handle all_images which might be a tuple from zip operation  
-                if isinstance(all_images, tuple):
-                    all_images_tensor = torch.stack(all_images[:maximum_queries])
-                    all_images_tensor = all_images_tensor.reshape(-1, config["seq_len"], *img_shape)
-                else:
-                    all_images_tensor = all_images
-                
-                # Create visual debug with current episode data
-                if logits.get('query_features', None) is not None:
-                    model_attributes.visual_debug(
-                        similarity_matrix=similarity_matrix,
-                        videodataset=videodataset,
-                        support_labels=support_labels,
-                        target_labels=all_labels,
-                        batch_class_list=batch_class_list,
-                        support_set=support_set,
-                        target_set=all_images_tensor,
-                        unknown_labels=all_unknowns_tensor,
-                        support_features=logits.get('support_features', None),
-                        query_features=logits.get('query_features', None),
-                        support_mm_features_aug=logits.get('support_mm_features_aug', None),
-                        query_features_aug=logits.get('query_features_aug', None)
-                    )
-                
-                print("Single episode visual debug completed!")
+                visual_debug(
+                    similarity_matrix, support_set, images_tensor, support_labels, 
+                    all_labels, batch_class_list, unknowns_tensor, videodataset, 
+                    logits, model_attributes.debug_samples_counter, config
+                )
+                model_attributes.debug_samples_counter += 1
 
             # Optimization
             known_losses.update(unknown_losses)

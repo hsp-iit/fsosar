@@ -26,7 +26,6 @@ class OpenSetLoss(torch.nn.Module):
         super(OpenSetLoss, self).__init__()
         self.os_loss = {"softmax": self.softmax_loss,
                           "eos": self.eos_loss,
-                          "objectosphere": self.objectosphere_loss,
                           "discriminator": self.discriminator_loss,
                           "gc": self.gc_loss}
         self.os_loss = self.os_loss[os_loss]
@@ -77,36 +76,7 @@ class OpenSetLoss(torch.nn.Module):
 
         return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": unknown_loss}
 
-    def objectosphere_loss(self, logits, targets, similarity_matrix, rescale_function):
-        """
-        how to determine alpha and epsilon?
-        we push unknown logits to -16 since exp(-16) = 0.0000001
-        we push known logits to 0 since exp(-0) = 1
-        we set alpha to 0.01 because this value balances closed-set loss magnitude
-        """
-        epsilon = 1
-        alpha = 0.01
 
-        eos_loss = self.eos_loss(logits, targets, similarity_matrix)["unknown_loss"]
-        scaled_similarity_matrix = rescale_function(similarity_matrix)
-        # # sphere
-        unknown_indices = targets == -1
-        if unknown_indices.sum() > 0:  # if > -32, push norm of diff of unknown feature to -32
-            unk_norms = scaled_similarity_matrix[unknown_indices]
-            unk_norms = unk_norms.mean()
-            unknown_sphere_loss = alpha*torch.maximum(unk_norms-epsilon, torch.tensor(0))
-        else:
-            unknown_sphere_loss = None
-
-        known_indices = targets != -1
-        if known_indices.sum() > 0:
-            known_norms = scaled_similarity_matrix[known_indices]
-            known_norms = known_norms.mean()
-            known_sphere_loss = alpha*(-known_norms)
-        else:
-            known_sphere_loss = None
-
-        return {"known_loss": torch.FloatTensor([0]).cuda(), "unknown_loss": eos_loss, "unknown_sphere_loss": unknown_sphere_loss, "known_sphere_loss": known_sphere_loss}
 
     def loss(self, logits, targets, similarity_matrix, rescale_function):
         return self.os_loss(logits, targets, similarity_matrix, rescale_function)
@@ -500,7 +470,7 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
     batch_class_list_np = batch_class_list.detach().cpu().numpy()
     
     # Compute os_prob based on the open set loss method
-    if os_loss_name in ["softmax", "eos", "objectosphere"]:
+    if os_loss_name in ["softmax", "eos"]:
         # For implicit methods, use max similarity as os_prob
         if model_name == "STRM":
             os_prob = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()

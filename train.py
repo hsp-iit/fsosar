@@ -24,7 +24,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
     parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving48"], help='Data name')
-    parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "objectosphere", "discriminator", "gc"], help='Open set loss')
+    parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
 
 
@@ -300,7 +300,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 else:
                     os_target = all_labels!=-1
                 os_target = os_target.detach().cpu().numpy()
-                if os_loss in ["softmax", "eos", "objectosphere"]:  # implcit methods
+                if os_loss in ["softmax", "eos"]:  # implcit methods
                     mssm = scaled_similarity_matrix.amax(dim=-1).detach().cpu().numpy()
                     mss = torch.nn.functional.softmax(similarity_matrix, dim=-1).amax(dim=-1).detach().cpu().numpy()
                     mls = similarity_matrix.amax(dim=-1).detach().cpu().numpy()

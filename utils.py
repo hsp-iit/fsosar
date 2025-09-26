@@ -393,7 +393,7 @@ def save_tsne_features(features, episode_class_names, model_name, dataset_name, 
     import os
     
     # Create features directory with structured path
-    features_dir = f'saved_features/{model_name}/{dataset_name}/{os_loss_name}'
+    features_dir = f'data_analysis/saved_features/{model_name}/{dataset_name}/{os_loss_name}'
     os.makedirs(features_dir, exist_ok=True)
     filename = f'{features_dir}/class_features.pkl'
     
@@ -432,6 +432,131 @@ def save_tsne_features(features, episode_class_names, model_name, dataset_name, 
     return filename
 
 
+def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batch_class_list, 
+                         classes_names, model_name, dataset_name, os_loss_name, logits=None, 
+                         unknown_labels=None, os_threshold=0.5):
+    """
+    Save confusion matrix data incrementally for later visualization
+    Includes unknown queries that are incorrectly classified as known classes
+    
+    Args:
+        similarity_matrix: Predictions similarity matrix
+        support_labels: Labels for support samples
+        target_labels: Labels for query samples (-1 for unknown)
+        batch_class_list: Class indices for current batch
+        classes_names: List of all class names
+        model_name: Name of the model (e.g., 'SAFSAR', 'STRM')
+        dataset_name: Name of the dataset (e.g., 'HMDB51', 'UCF101')
+        os_loss_name: Name of the open set loss (e.g., 'softmax', 'discriminator')
+        logits: Model logits (for discriminator-based os_prob)
+        unknown_labels: True class labels for unknown samples (for proper confusion matrix entries)
+        os_threshold: Threshold for considering unknown as wrongly classified (default: 0.5)
+    """
+    import pickle
+    import os
+    import numpy as np
+    import torch
+    
+    # Create confusion matrix directory with structured path
+    cm_dir = f'data_analysis/confusion_matrices/{model_name}/{dataset_name}/{os_loss_name}'
+    os.makedirs(cm_dir, exist_ok=True)
+    filename = f'{cm_dir}/confusion_data.pkl'
+    
+    # Load existing data or create new dictionary
+    if os.path.exists(filename):
+        with open(filename, 'rb') as f:
+            cm_data = pickle.load(f)
+    else:
+        # Only use known classes in confusion matrix
+        matrix_size = len(classes_names)
+        cm_data = {
+            'confusion_matrix': np.zeros((matrix_size, matrix_size), dtype=int),
+            'class_names': classes_names,
+            'model_type': model_name,
+            'dataset': dataset_name,
+            'os_loss': os_loss_name,
+            'episode_count': 0,
+            'os_threshold': os_threshold,
+            'unknown_correctly_rejected': 0,
+            'unknown_misclassified_count': 0
+        }
+    
+    # Get predictions from similarity matrix
+    predictions = similarity_matrix.argmax(dim=-1).detach().cpu().numpy()
+    target_labels_np = target_labels.detach().cpu().numpy()
+    batch_class_list_np = batch_class_list.detach().cpu().numpy()
+    
+    # Compute os_prob based on the open set loss method
+    if os_loss_name in ["softmax", "eos", "objectosphere"]:
+        # For implicit methods, use max similarity as os_prob
+        if model_name == "STRM":
+            os_prob = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
+        elif model_name in ["SAFSAR", "ActionCLIP", "MAML", "TAOSAR"]:
+            os_prob = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
+    elif os_loss_name == "discriminator" and logits is not None:
+        # For explicit discriminator method
+        os_prob = logits.get("disc_prob", None)
+        if os_prob is not None:
+            os_prob = os_prob.squeeze(-1).detach().cpu().numpy()
+    elif os_loss_name == "gc":
+        # For GC method
+        gc_probs = torch.nn.functional.softmax(similarity_matrix, dim=-1)
+        os_prob = 1 - gc_probs[:, -1].detach().cpu().numpy()  # 1 - unknown_prob = known_prob
+    
+    # Process known queries (target_labels != -1)
+    known_mask = target_labels_np != -1
+    if known_mask.sum() > 0:
+        known_predictions = predictions[known_mask]
+        known_targets = target_labels_np[known_mask]
+        
+        # Map predictions and targets to global class indices
+        for pred_idx, true_idx in zip(known_predictions, known_targets):
+            pred_class_idx = int(batch_class_list_np[pred_idx])
+            true_class_idx = int(batch_class_list_np[true_idx])
+            cm_data['confusion_matrix'][true_class_idx, pred_class_idx] += 1
+    
+    # Process unknown queries (target_labels == -1)
+    unknown_mask = target_labels_np == -1
+    
+    if unknown_mask.sum() > 0:
+        unknown_predictions = predictions[unknown_mask]
+        unknown_os_probs = os_prob[unknown_mask]
+        
+        # Get the true class labels for unknown samples
+        if unknown_labels is not None:
+            unknown_labels_np = unknown_labels.detach().cpu().numpy()
+            unknown_true_labels = unknown_labels_np[unknown_mask]
+        else:
+            unknown_true_labels = None
+        
+        for i, pred_idx in enumerate(unknown_predictions):
+            pred_class_idx = int(batch_class_list_np[pred_idx])
+            
+            # Check if unknown is wrongly classified as known (os_prob > threshold)
+            if unknown_os_probs[i] > os_threshold:
+                # Use the actual true class of the unknown sample
+                true_unknown_class_idx = int(unknown_true_labels[i])
+                # Add this as a misclassification in the confusion matrix
+                # [true_class, predicted_class] - true class is the unknown's actual class
+                cm_data['confusion_matrix'][true_unknown_class_idx, pred_class_idx] += 1
+            else:
+                # Unknown correctly rejected - just count it but don't add to matrix
+                cm_data['unknown_correctly_rejected'] += 1
+    
+    # Increment episode count
+    cm_data['episode_count'] += 1
+    
+    # Save updated confusion matrix data
+    with open(filename, 'wb') as f:
+        pickle.dump(cm_data, f)
+    
+    # Print summary
+    total_predictions = cm_data['confusion_matrix'].sum()
+    print(f"Confusion matrix updated at {filename} - Total predictions: {total_predictions} from {cm_data['episode_count']} episodes")
+    
+    return filename
+
+
 def visual_debug(similarity_matrix, support_set, target_set, support_labels, 
                 target_labels, batch_class_list, unknown_labels, videodataset, 
                 logits, debug_samples_counter, config):
@@ -451,7 +576,12 @@ def visual_debug(similarity_matrix, support_set, target_set, support_labels,
     seq_len = config['seq_len']
     disc_prob = logits.get('disc_prob', None)
     
-    os.makedirs(f'visual_debug/{debug_samples_counter}', exist_ok=True)
+    # Create structured path like save_tsne_features
+    model_name = config['model_name']
+    dataset_name = config['data_name']  
+    os_loss_name = config['os_loss']
+    debug_dir = f'data_analysis/visual_debug/{model_name}/{dataset_name}/{os_loss_name}/{debug_samples_counter}'
+    os.makedirs(debug_dir, exist_ok=True)
 
     # Generate GIF visualizations
     if support_set is not None and target_set is not None:
@@ -475,9 +605,9 @@ def visual_debug(similarity_matrix, support_set, target_set, support_labels,
         concatenated_frames = concatenated_frames.reshape(way, shot, seq_len, 224, 224, 3)
         concatenated_frames = np.concatenate(concatenated_frames, axis=2)
         concatenated_frames = np.concatenate(concatenated_frames, axis=2)
-        imageio.mimsave(f'visual_debug/{debug_samples_counter}/ss.gif', concatenated_frames, duration=250, loop=0)
+        imageio.mimsave(f'{debug_dir}/ss.gif', concatenated_frames, duration=250, loop=0)
         
-        with open(f'visual_debug/{debug_samples_counter}/ss.txt', 'w') as f:
+        with open(f'{debug_dir}/ss.txt', 'w') as f:
             for item in support_classes:
                 f.write("%s\n" % item)
 
@@ -522,5 +652,6 @@ def visual_debug(similarity_matrix, support_set, target_set, support_labels,
                     elif not true_open[cur] and pred_open[cur]:
                         res = "FP"
                     
-                    imageio.mimsave(f'visual_debug/{debug_samples_counter}/{res}_{accept_score[cur]:.4f}_{query_label}.gif', 
+                    # Fix formatting issue - ensure score is a scalar
+                    imageio.mimsave(f'{debug_dir}/{res}_{accept_score[cur].item():.4f}_{query_label}.gif', 
                                    concatenated_frame, duration=250, loop=0)

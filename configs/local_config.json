@@ -3,8 +3,8 @@
     "log_wandb": false,
     "eval_only": true,
     "n_eval_steps": 10,
-    "visual_debug": true,
-    "checkpoint_path": "/home/sberti/fsosar/checkpoints/SAFSAR/SSv2/safsar_discriminator_STEPS_36000_ACC_0.7788_os_acc_0.7353.pt",
+    "visual_debug": false,
+    "checkpoint_path": "/home/sberti/fsosar/checkpoints/SAFSAR/SSv2/sasfar_softmax_STEPS_36000_ACC_0.7409_os_acc_mss_0.6405.pt",
     "exit_after_eval": true,
     "way": 5,
     "seq_len": 8,
@@ -12,5 +12,7 @@
     "query_per_class_test": 1,
     "eval_after_steps": 0,
     "num_workers": 0,
-    "save_features": false
+    "save_features": false,
+    "compute_confusion_matrix": true,
+    "max_steps": 310
 }

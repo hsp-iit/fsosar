@@ -256,6 +256,10 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     while True:
         # assert dataloader.dataset.train == training
         for elem in dataloader:
+
+            if total_step >= config["max_steps"]:
+                exit(0)
+                
             # Data preparation
             support_set = elem["support_set"].squeeze(0).cuda()
             target_set = elem["target_set"].squeeze(0)  # .cuda()
@@ -335,6 +339,17 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                     logits, model_attributes.debug_samples_counter, config
                 )
                 model_attributes.debug_samples_counter += 1
+
+            # Confusion matrix computation must be called only during evaluation
+            if config.get("compute_confusion_matrix", False) and not training and rank == 0:
+                from utils import save_confusion_matrix
+                # Handle tuple conversion for all_unknowns like in visual_debug
+                unknowns_tensor = torch.stack(all_unknowns[:maximum_queries]) if isinstance(all_unknowns, tuple) else all_unknowns
+                save_confusion_matrix(
+                    similarity_matrix, support_labels, all_labels, batch_class_list,
+                    config["classes_names"], config["model_name"], config["data_name"], config["os_loss"],
+                    logits=logits, unknown_labels=unknowns_tensor
+                )
 
             # Optimization
             known_losses.update(unknown_losses)

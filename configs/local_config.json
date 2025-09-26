@@ -14,5 +14,5 @@
     "num_workers": 0,
     "save_features": false,
     "compute_confusion_matrix": true,
-    "max_steps": 310
+    "max_steps": 100000000
 }

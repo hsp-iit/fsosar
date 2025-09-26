@@ -8,6 +8,19 @@ import socket
 from sklearn.metrics import roc_auc_score, precision_recall_curve
 import torch.nn as nn
 
+
+def set_seeds(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = True
+    torch.cuda.empty_cache()
+    random.seed(seed)
+    np.random.seed(seed)
+
+
 class OpenSetLoss(torch.nn.Module):
     def __init__(self, os_loss):
         super(OpenSetLoss, self).__init__()
@@ -491,7 +504,7 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
         # For implicit methods, use max similarity as os_prob
         if model_name == "STRM":
             os_prob = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
-        elif model_name in ["SAFSAR", "ActionCLIP", "MAML", "TAOSAR"]:
+        elif model_name == "SAFSAR":
             os_prob = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
     elif os_loss_name == "discriminator" and logits is not None:
         # For explicit discriminator method

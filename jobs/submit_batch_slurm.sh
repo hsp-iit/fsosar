@@ -14,7 +14,7 @@ contains_element() {
 }
 
 # Define valid models and datasets
-valid_models=("STRM" "SAFSAR" "ActionCLIP" "MAML" "TAOSAR")
+valid_models=("STRM" "SAFSAR")
 valid_datasets=("SSv2" "HMDB51" "UCF101" "NTURGBD120" "Diving48")
 valid_os_losses=("softmax" "eos" "discriminator" "gc")
 
@@ -101,7 +101,7 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  $0"
             echo "  $0 --models STRM,SAFSAR --datasets UCF101 --os-losses softmax,discriminator"
-            echo "  $0 --models ActionCLIP --datasets UCF101,HMDB51 --os-losses gc"
+            echo "  $0 --models SAFSAR --datasets UCF101,HMDB51 --os-losses gc"
             exit 0
             ;;
         *)

@@ -86,14 +86,7 @@ class VideoDataset(torch.utils.data.Dataset):
             self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
             self.transform["train"] = self.custom_transform
             self.transform["test"] = self.custom_transform
-        elif preprocessing == "ActionCLIP":
-            import clip
-            self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device="cpu")
-            self.transform["train"] = self.clip_transform
-            self.transform["test"] = self.clip_transform
-        elif preprocessing == "MAML":
-            # MAML uses standard torchvision transforms, no custom preprocessing needed
-            pass
+
 
         # Get complex names if they exists
         if os.path.exists(os.path.join(self.annotation_path, "classes_label_defn.json")):
@@ -108,14 +101,7 @@ class VideoDataset(torch.utils.data.Dataset):
     def custom_transform(self, x):
         return [x for x in self.processor(x)["pixel_values"][0]]  # swapaxes(0, 2)
 
-    def clip_transform(self, frames):
-        # Apply CLIP preprocessing to each frame
-        processed_frames = []
-        for frame in frames:
-            # CLIP preprocess already converts to tensor and normalizes
-            processed_frame = self.clip_preprocess(frame)
-            processed_frames.append(processed_frame)
-        return processed_frames
+
 
     """Setup crop sizes/flips for augmentation during training and centre crop for testing"""
     def setup_transforms(self):
@@ -337,12 +323,8 @@ class VideoDataset(torch.utils.data.Dataset):
             else:
                 transform = self.transform["test"]
             
-            if self.preprocessing == "ActionCLIP":
-                # For ActionCLIP, the transform already returns tensors
-                imgs = transform(imgs)
-                imgs = torch.stack(imgs)
-            elif self.preprocessing in ["SAFSAR", "STRM", "MAML"]:
-                # For other methods, apply tensor_transform after the transform
+            if self.preprocessing in ["SAFSAR", "STRM"]:
+                # For SAFSAR and STRM, apply tensor_transform after the transform
                 imgs = [self.tensor_transform(v) for v in transform(imgs)]
                 imgs = torch.stack(imgs)
             else:

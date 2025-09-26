@@ -373,3 +373,60 @@ if __name__ == "__main__":
               [1, 0, 0]]
     os_score = [0.9, 0.9, 0.9, 0.9, 0.9, 0.9]
     print(compute_oscr(targets, logits, os_score))
+
+
+def save_tsne_features(features, episode_class_names, model_name, dataset_name, os_loss_name):
+    """
+    Generic function to save features for t-SNE analysis
+    
+    Args:
+        features: torch.Tensor - Features to save [num_classes, feature_dim]
+        episode_class_names: list - Class names for the current episode (already indexed by batch_class_list)
+        model_name: str - Name of the model (e.g., 'SAFSAR', 'STRM')
+        dataset_name: str - Name of the dataset (e.g., 'HMDB51', 'UCF101')
+        os_loss_name: str - Name of the open set loss (e.g., 'softmax', 'discriminator')
+        
+    Returns:
+        str: Path to the saved file
+    """
+    import pickle
+    import os
+    
+    # Create features directory with structured path
+    features_dir = f'saved_features/{model_name}/{dataset_name}/{os_loss_name}'
+    os.makedirs(features_dir, exist_ok=True)
+    filename = f'{features_dir}/class_features.pkl'
+    
+    # Load existing data or create new dictionary
+    if os.path.exists(filename):
+        with open(filename, 'rb') as f:
+            class_feature_dict = pickle.load(f)
+    else:
+        class_feature_dict = {}
+    
+    # Add features organized by class name
+    for i in range(len(features)):
+        class_name = episode_class_names[i]
+        
+        # Initialize class entry if not exists
+        if class_name not in class_feature_dict:
+            class_feature_dict[class_name] = {
+                'features': [],
+                'feature_dim': features.shape[-1],
+                'model_type': model_name
+            }
+        
+        # Append new feature
+        class_feature_dict[class_name]['features'].append(
+            features[i].detach().cpu().numpy()
+        )
+    
+    # Save updated dictionary
+    with open(filename, 'wb') as f:
+        pickle.dump(class_feature_dict, f)
+    
+    # Print summary
+    total_features = sum(len(data['features']) for data in class_feature_dict.values())
+    print(f"Features appended to {filename} - Total: {total_features} features across {len(class_feature_dict)} classes")
+    
+    return filename

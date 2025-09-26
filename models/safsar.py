@@ -121,59 +121,15 @@ class SAFSAR(nn.Module):
 
         # Save features for later t-SNE analysis
         if getattr(self, 'save_features', False):
-            import pickle
-            import os
-            
-            # Create features directory with structured path
-            model_name = getattr(self, 'model_name', 'SAFSAR')
-            dataset_name = getattr(self, 'dataset_name', 'unknown_dataset')
-            os_loss_name = getattr(self, 'os_loss_name', 'unknown_loss')
-            
-            features_dir = f'saved_features/{model_name}/{dataset_name}/{os_loss_name}'
-            os.makedirs(features_dir, exist_ok=True)
-            filename = f'{features_dir}/class_features.pkl'
-            
-            # Load existing data or create new dictionary
-            if os.path.exists(filename):
-                with open(filename, 'rb') as f:
-                    class_feature_dict = pickle.load(f)
-            else:
-                class_feature_dict = {}
-            
-            # Add features organized by class name
-            for i in range(len(support_mm_features)):
-                class_idx = i
-                # Use the descriptive class names from self.classes_names
-                class_idx_int = int(batch_class_list[class_idx])
-                if class_idx_int < len(self.classes_names):
-                    class_name = self.classes_names[class_idx_int]
-                else:
-                    class_name = f"class_{class_idx_int}"
-                
-                # Initialize class entry if not exists
-                if class_name not in class_feature_dict:
-                    class_feature_dict[class_name] = {
-                        'features': [],
-                        'episode_ids': [],
-                        'feature_dim': support_mm_features.shape[-1],
-                        'model_type': 'SAFSAR'
-                    }
-                
-                # Append new feature and episode info
-                class_feature_dict[class_name]['features'].append(
-                    support_mm_features[i].detach().cpu().numpy()
-                )
-                class_feature_dict[class_name]['episode_ids'].append(
-                    getattr(self, 'current_episode_id', self.debug_samples_counter)
-                )
-            
-            # Save updated dictionary
-            with open(filename, 'wb') as f:
-                pickle.dump(class_feature_dict, f)
-            
-            # Print summary
-            total_features = sum(len(data['features']) for data in class_feature_dict.values())
-            print(f"Features appended to {filename} - Total: {total_features} features across {len(class_feature_dict)} classes")
+            from utils import save_tsne_features
+            episode_class_names = [self.classes_names[int(idx)] for idx in batch_class_list]
+            save_tsne_features(
+                features=support_mm_features,
+                episode_class_names=episode_class_names,
+                model_name=getattr(self, 'model_name', 'SAFSAR'),
+                dataset_name=getattr(self, 'dataset_name', 'unknown_dataset'),
+                os_loss_name=getattr(self, 'os_loss_name', 'unknown_loss')
+            )
 
         # Add unknown class if GC
         if self.gc:

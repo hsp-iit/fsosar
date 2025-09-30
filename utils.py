@@ -474,7 +474,7 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
         # For implicit methods, use max similarity as os_prob
         if model_name == "STRM":
             os_prob = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
-        elif model_name == "SAFSAR":
+        elif model_name in ["SAFSAR", "D2ST"]:
             os_prob = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
     elif os_loss_name == "discriminator" and logits is not None:
         # For explicit discriminator method

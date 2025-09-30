@@ -16,13 +16,14 @@ from sklearn.metrics import roc_auc_score
 from utils import is_address_in_use
 import copy
 from models import SAFSAR, STRM
+from models.d2st import D2ST
 from utils import visual_debug, set_seeds, save_confusion_matrix
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
-    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
+    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR", "D2ST"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving48"], help='Data name')
     parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
@@ -80,6 +81,19 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         elif config["shot"] == 5:
             lr = 4e-6
             disc_weight = 1000
+    elif model_name == "D2ST":
+        # D2ST uses Adam optimizer with higher learning rates
+        if config["shot"] == 1:
+            if data_name in ["NTURGBD120"]:
+                lr = 0.001
+            elif data_name in ["SSv2", "Diving48"]:
+                lr = 0.002
+            elif data_name in ["UCF101", "HMDB51"]:
+                lr = 0.001
+            disc_weight = 10
+        elif config["shot"] == 5:
+            lr = 0.002
+            disc_weight = 10
 
         
     config["eval_after_steps"] = eval_after_steps
@@ -109,6 +123,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         model = SAFSAR(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     elif model_name == "STRM":
         model = STRM(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    elif model_name == "D2ST":
+        model = D2ST(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     else:
         raise ValueError(f"Unknown model: {model_name}")
     
@@ -162,6 +178,9 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     elif model_name == "STRM":
         optimizer = torch.optim.SGD(model_param, lr=lr)
         scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
+    elif model_name == "D2ST":
+        optimizer = torch.optim.Adam(model_param, lr=lr)
+        scheduler = None
     else:
         raise Exception("Wrong model name")
 
@@ -239,6 +258,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                         rescale_function = lambda x: (x+1)/2
                     if model_name == "STRM":
                         rescale_function = torch.exp
+                    if model_name == "D2ST":
+                        rescale_function = lambda x: (x+1)/2
 
                 else:
                     rescale_function = None
@@ -292,7 +313,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 if model_name == "STRM":
                     scaled_similarity_matrix = torch.exp(similarity_matrix)
                     # acc_target = all_labels
-                elif model_name == "SAFSAR":
+                elif model_name in ["SAFSAR", "D2ST"]:
                     scaled_similarity_matrix = (similarity_matrix + 1)/2
                     # acc_target = true_target_labels
                 if os_loss == "gc":

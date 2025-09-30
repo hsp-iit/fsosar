@@ -16,7 +16,7 @@ from sklearn.metrics import roc_auc_score
 from utils import is_address_in_use
 import copy
 from models import SAFSAR, STRM
-from utils import visual_debug, set_seeds
+from utils import visual_debug, set_seeds, save_confusion_matrix
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
@@ -263,7 +263,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
 
             # Confusion matrix computation must be called only during evaluation
             if config.get("compute_confusion_matrix", False) and not training and rank == 0:
-                from utils import save_confusion_matrix
+
                 # Handle tuple conversion for all_unknowns like in visual_debug
                 unknowns_tensor = torch.stack(all_unknowns[:maximum_queries]) if isinstance(all_unknowns, tuple) else all_unknowns
                 save_confusion_matrix(

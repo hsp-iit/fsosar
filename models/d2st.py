@@ -288,11 +288,28 @@ class ResNet_D2ST_Adapter(nn.Module):
         self.s_ln = LayerNormProxy(self.adapter_channels)
         self.t_ln = LayerNormProxy(self.adapter_channels)
         
-        # Spatial and temporal deformable attention pathways - exact same as ViT
-        self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=4, groups=4, 
-                                           kernel_size=(4, 5, 5), stride=(4, 3, 3), padding=(0, 0, 0))
-        self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=4, groups=4, 
-                                           kernel_size=(1, 7, 7), stride=(1, 7, 7), padding=(0, 0, 0))
+        # Spatial and temporal deformable attention pathways - EXACT configuration from original
+        # Different head/group configurations based on feature dimension (matching original D2ST)
+        if dim == self.args.ADAPTER.WIDTH // 8:
+            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=1, groups=1, 
+                                               kernel_size=(4, 7, 7), stride=(4, 7, 7), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=1, groups=1, 
+                                               kernel_size=(1, 14, 14), stride=(1, 14, 14), padding=(0, 0, 0))
+        elif dim == self.args.ADAPTER.WIDTH // 4:
+            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=2, groups=2, 
+                                               kernel_size=(4, 7, 7), stride=(4, 7, 7), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=2, groups=2, 
+                                               kernel_size=(1, 14, 14), stride=(1, 14, 14), padding=(0, 0, 0))
+        elif dim == self.args.ADAPTER.WIDTH // 2:
+            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=4, groups=4, 
+                                               kernel_size=(4, 5, 5), stride=(4, 3, 3), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=4, groups=4, 
+                                               kernel_size=(1, 7, 7), stride=(1, 7, 7), padding=(0, 0, 0))
+        else:  # dim == self.args.ADAPTER.WIDTH (final stage)
+            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=8, groups=8, 
+                                               kernel_size=(4, 4, 4), stride=(4, 3, 3), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=8, groups=8, 
+                                               kernel_size=(1, 7, 7), stride=(1, 7, 7), padding=(0, 0, 0))
         
         self.gelu = nn.GELU()
         
@@ -384,31 +401,74 @@ class D2STConfig:
         
         self.ADAPTER = type('ADAPTER', (), {})()
         
-        # Configure based on backbone
+        # Auto-configure based on backbone type
         if "ViT" in backbone or "CLIP" in backbone:
+            # ViT-CLIP backbone configuration
             self.ADAPTER.NAME = "ViT_CLIP"
             self.ADAPTER.PRETRAINED = backbone
-            self.ADAPTER.WIDTH = 768
-            self.ADAPTER.PATCH_SIZE = 16
-            self.ADAPTER.LAYERS = 12
-            self.ADAPTER.HEADS = 12
-        else:  # ResNet backbone
+            
+            # ViT model-specific parameters
+            if "B/16" in backbone:
+                self.ADAPTER.WIDTH = 768
+                self.ADAPTER.PATCH_SIZE = 16
+                self.ADAPTER.LAYERS = 12
+                self.ADAPTER.HEADS = 12
+            elif "B/32" in backbone:
+                self.ADAPTER.WIDTH = 768
+                self.ADAPTER.PATCH_SIZE = 32
+                self.ADAPTER.LAYERS = 12
+                self.ADAPTER.HEADS = 12
+            elif "L/14" in backbone:
+                self.ADAPTER.WIDTH = 1024
+                self.ADAPTER.PATCH_SIZE = 14
+                self.ADAPTER.LAYERS = 24
+                self.ADAPTER.HEADS = 16
+            else:  # Default ViT-B/16
+                self.ADAPTER.WIDTH = 768
+                self.ADAPTER.PATCH_SIZE = 16
+                self.ADAPTER.LAYERS = 12
+                self.ADAPTER.HEADS = 12
+                
+        else:
+            # ResNet backbone configuration
             self.ADAPTER.NAME = "ResNet"
+            
             if "resnet18" in backbone.lower():
                 self.ADAPTER.LAYERS = 18
                 self.ADAPTER.WIDTH = 512
-            elif "resnet50" in backbone.lower():
+            elif "resnet34" in backbone.lower():
+                self.ADAPTER.LAYERS = 34
+                self.ADAPTER.WIDTH = 512
+            elif "resnet101" in backbone.lower():
+                self.ADAPTER.LAYERS = 101
+                self.ADAPTER.WIDTH = 2048
+            elif "resnet152" in backbone.lower():
+                self.ADAPTER.LAYERS = 152
+                self.ADAPTER.WIDTH = 2048
+            else:  # Default ResNet50
                 self.ADAPTER.LAYERS = 50
                 self.ADAPTER.WIDTH = 2048
-            else:  # default ResNet50
-                self.ADAPTER.LAYERS = 50
-                self.ADAPTER.WIDTH = 2048
+                
+            # ResNet doesn't use these parameters, but set defaults
+            self.ADAPTER.PATCH_SIZE = None
+            self.ADAPTER.HEADS = None
         
+        # Common adapter parameters
         self.ADAPTER.ADAPTER_SCALE = 0.25
         
+        # Training configuration - auto-adjust based on backbone
         self.TRAIN = type('TRAIN', (), {})()
-        self.TRAIN.USE_CLASSIFICATION_VALUE = 2.0 if "ViT" in backbone else 1.0
+        
+        # ViT models typically use higher classification value
+        if "ViT" in backbone or "CLIP" in backbone:
+            self.TRAIN.USE_CLASSIFICATION_VALUE = 2.0
+        else:
+            self.TRAIN.USE_CLASSIFICATION_VALUE = 1.0
+            
         self.TRAIN.NUM_CLASS = num_classes
+        
+        # Store backbone info for easy access
+        self.backbone_type = backbone
 
 class D2ST(nn.Module):
     def __init__(self, config, disc=False, gc=False, dp=0.1):
@@ -421,7 +481,7 @@ class D2ST(nn.Module):
         self.gc = gc
         
         # Get backbone from config
-        backbone = config.get("backbone", "ViT-B/16")
+        backbone = config["backbone"]
         
         # Create D2ST config in original format
         self.args = D2STConfig(self.num_frames, 224, config.get("num_classes", 5), backbone)
@@ -461,6 +521,9 @@ class D2ST(nn.Module):
         
         # Initialize weights
         self.init_vit_weights()
+        
+        # Freeze backbone weights - only train adapters and specific components
+        self.freeze_backbone_weights()
 
     def _init_resnet_backbone(self):
         """Initialize ResNet backbone with D2ST adapters"""
@@ -488,6 +551,9 @@ class D2ST(nn.Module):
         self.adapter2 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 4, self.num_frames)
         self.adapter3 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 2, self.num_frames)
         self.adapter4 = ResNet_D2ST_Adapter(self.args, self.feature_dim, self.num_frames)
+        
+        # Freeze backbone weights - only train adapters
+        self.freeze_backbone_weights()
 
     def init_vit_weights(self):
         logger.info(f'load model from: {self.pretrained}')
@@ -510,6 +576,31 @@ class D2ST(nn.Module):
                         logger.info('init:  {}.{}'.format(n1, n2))
                         nn.init.constant_(m2.weight, 0)
                         nn.init.constant_(m2.bias, 0)
+
+    def freeze_backbone_weights(self):
+        """Freeze backbone weights and only train adapters and specific components"""
+        logger.info("Freezing backbone weights - only training adapters and specific components")
+        
+        for name, param in self.named_parameters():
+            # Only train these components (following original D2ST implementation)
+            if ('class_embedding' not in name and 
+                'temporal_embedding' not in name and 
+                'Adapter' not in name and 
+                'adapter' not in name and  # For ResNet adapters
+                'ln_post' not in name and 
+                'classification_layer' not in name):
+                param.requires_grad = False
+                
+        # Log trainable parameters
+        num_param = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        num_total_param = sum(p.numel() for p in self.parameters())
+        logger.info('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, num_param))
+        
+        # Log which parameters are trainable
+        logger.info("Trainable parameters:")
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                logger.info(f'  {name}: {param.numel()} parameters')
 
     def extract_class_indices(self, labels, which_class):
         class_mask = torch.eq(labels, which_class)

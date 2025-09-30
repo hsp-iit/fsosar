@@ -196,10 +196,10 @@ class ResNet_DeformAttention(nn.Module):
             nn.Conv3d(in_channels=self.group_channels, out_channels=3, kernel_size=(1, 1, 1), bias=False)
         )
 
-        self.proj_q = nn.Conv3d(in_features=self.dim, out_features=self.dim, kernel_size=1)
-        self.proj_k = nn.Conv3d(in_features=self.dim, out_features=self.dim, kernel_size=1)  
-        self.proj_v = nn.Conv3d(in_features=self.dim, out_features=self.dim, kernel_size=1)
-        self.proj_out = nn.Conv3d(in_features=self.dim, out_features=self.dim, kernel_size=1)
+        self.proj_q = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)
+        self.proj_k = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)  
+        self.proj_v = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)
+        self.proj_out = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)
 
     @torch.no_grad()
     def _get_ref_points(self, T, H, W, B, dtype, device):

@@ -175,10 +175,9 @@ class QuickGELU(nn.Module):
         return x * torch.sigmoid(1.702 * x)
 
 class ResNet_DeformAttention(nn.Module):
-    """Exact deformable attention for ResNet backbone - matches ViT implementation"""
-    def __init__(self, cfg, dim, heads, groups, kernel_size, stride, padding):
+    """Exact deformable attention for ResNet backbone - matches original implementation"""
+    def __init__(self, dim, heads, groups, kernel_size, stride, padding):
         super().__init__()
-        self.args = cfg
         self.dim = dim
         self.heads = heads
         self.head_channels = dim // heads
@@ -196,10 +195,10 @@ class ResNet_DeformAttention(nn.Module):
             nn.Conv3d(in_channels=self.group_channels, out_channels=3, kernel_size=(1, 1, 1), bias=False)
         )
 
-        self.proj_q = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)
-        self.proj_k = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)  
-        self.proj_v = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)
-        self.proj_out = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=1)
+        self.proj_q = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=(1, 1, 1))
+        self.proj_k = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=(1, 1, 1))  
+        self.proj_v = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=(1, 1, 1))
+        self.proj_out = nn.Conv3d(in_channels=self.dim, out_channels=self.dim, kernel_size=(1, 1, 1))
 
     @torch.no_grad()
     def _get_ref_points(self, T, H, W, B, dtype, device):
@@ -216,149 +215,93 @@ class ResNet_DeformAttention(nn.Module):
         return ref
 
     def forward(self, x):
-        # Input: (B, C, T, H, W)
-        B, C, T, H, W = x.shape
+        # Input: (B, C, T, H, W) - EXACT match to original
+        B, C, T, H, W = x.size()
         dtype, device = x.dtype, x.device
 
-        # Generate queries, keys, values
-        q = self.proj_q(x)  # (B, C, T, H, W)
-        
-        # Prepare for offset computation
+        q = self.proj_q(x)
         q_off = rearrange(q, 'b (g c) t h w -> (b g) c t h w', g=self.groups, c=self.group_channels)
-        offset = self.conv_offset(q_off)  # (B*g, 3, Tp, Hp, Wp)
+        offset = self.conv_offset(q_off)  # B * g 3 Tp Hp Wp
         Tp, Hp, Wp = offset.size(2), offset.size(3), offset.size(4)
-        
-        # Compute offset range and normalize
-        offset_range = torch.tensor([min(1.0, self.factor / Tp), min(1.0, self.factor / Hp), min(1.0, self.factor / Wp)], 
-                                   device=device).reshape(1, 3, 1, 1, 1)
+        n_sample = Tp * Hp * Wp
+
+        offset_range = torch.tensor([min(1.0, self.factor / Tp), min(1.0, self.factor / Hp), min(1.0, self.factor / Wp)], device=device).reshape(1, 3, 1, 1, 1)
         offset = offset.tanh().mul(offset_range)
-        offset = rearrange(offset, 'bg p t h w -> bg t h w p')
-        
-        # Get reference points
+        offset = rearrange(offset, 'b p t h w -> b t h w p')
         reference = self._get_ref_points(Tp, Hp, Wp, B, dtype, device)
         pos = offset + reference
 
-        # Sample from input using deformable positions
-        x_sampled = rearrange(x, 'b (g c) t h w -> (b g) c t h w', g=self.groups)
-        x_sampled = F.grid_sample(input=x_sampled, grid=pos[..., (2, 1, 0)], 
-                                mode='bilinear', align_corners=True)  # (B*g, Cg, Tp, Hp, Wp)
-        x_sampled = rearrange(x_sampled, '(b g) c t h w -> b (g c) t h w', g=self.groups)
+        x_sampled = F.grid_sample(input=x.reshape(B * self.groups, self.group_channels, T, H, W),
+                                  grid=pos[..., (2, 1, 0)],  # z, y, x -> x, y, z
+                                  mode='bilinear', align_corners=True)  # B * g, Cg, Tp, Hp, Wp
 
-        # Reshape for attention computation
-        q = rearrange(q, 'b (h c) t h_dim w -> (b h) c (t h_dim w)', h=self.heads)
-        
-        k = self.proj_k(x_sampled)
-        k = rearrange(k, 'b (h c) t h_dim w -> (b h) c (t h_dim w)', h=self.heads)
-        
-        v = self.proj_v(x_sampled)
-        v = rearrange(v, 'b (h c) t h_dim w -> (b h) c (t h_dim w)', h=self.heads)
+        # EXACT reshape as original - this is the key difference!
+        x_sampled = x_sampled.reshape(B, C, 1, 1, n_sample)
+        q = q.reshape(B * self.heads, self.head_channels, T * H * W)
+        k = self.proj_k(x_sampled).reshape(B * self.heads, self.head_channels, n_sample)
+        v = self.proj_v(x_sampled).reshape(B * self.heads, self.head_channels, n_sample)
 
-        # Compute attention
         attn = einsum(q, k, 'b c m, b c n -> b m n')
         attn = attn.mul(self.scale)
         attn = F.softmax(attn, dim=-1)
 
-        # Apply attention to values
         out = einsum(attn, v, 'b m n, b c n -> b c m')
-        out = rearrange(out, '(b h) c (t h_dim w) -> b (h c) t h_dim w', 
-                       h=self.heads, t=T, h_dim=H, w=W)
+        out = out.reshape(B, C, T, H, W)
         out = self.proj_out(out)
 
         return out
 
 class ResNet_D2ST_Adapter(nn.Module):
-    """D2ST Adapter for ResNet backbone - exact implementation matching ViT version"""
-    def __init__(self, cfg, dim, num_frames):
+    def __init__(self, cfg, dim):
         super().__init__()
         self.args = cfg
-        self.num_frames = num_frames
         self.in_channels = dim
         self.out_channels = dim
         self.adapter_channels = int(dim * cfg.ADAPTER.ADAPTER_SCALE)
-        
-        # Dimension reduction
-        self.down = nn.Conv3d(self.in_channels, self.adapter_channels, kernel_size=1)
-        self.gelu1 = nn.GELU()
-        
-        # Positional embedding
-        self.pos_embed = nn.Conv3d(in_channels=self.adapter_channels, out_channels=self.adapter_channels, 
-                                  kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), groups=self.adapter_channels)
-        
-        # Layer norms for dual pathways - use 3D layer norms
-        self.s_ln = LayerNormProxy(self.adapter_channels)
-        self.t_ln = LayerNormProxy(self.adapter_channels)
-        
-        # Spatial and temporal deformable attention pathways - EXACT configuration from original
-        # Different head/group configurations based on feature dimension (matching original D2ST)
+        self.down = nn.Conv3d(in_channels=self.in_channels, out_channels=self.adapter_channels, kernel_size=(1, 1, 1))
+
+        self.pos_embed = nn.Conv3d(in_channels=self.adapter_channels, out_channels=self.adapter_channels, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), groups=self.adapter_channels)
+        self.s_ln = LayerNormProxy(dim=self.adapter_channels)
+        self.t_ln = LayerNormProxy(dim=self.adapter_channels)
         if dim == self.args.ADAPTER.WIDTH // 8:
-            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=1, groups=1, 
-                                               kernel_size=(4, 7, 7), stride=(4, 7, 7), padding=(0, 0, 0))
-            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=1, groups=1, 
-                                               kernel_size=(1, 14, 14), stride=(1, 14, 14), padding=(0, 0, 0))
+            self.s_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=1, groups=1, kernel_size=(4, 7, 7), stride=(4, 7, 7), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=1, groups=1, kernel_size=(1, 14, 14), stride=(1, 14, 14), padding=(0, 0, 0))
         elif dim == self.args.ADAPTER.WIDTH // 4:
-            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=2, groups=2, 
-                                               kernel_size=(4, 7, 7), stride=(4, 7, 7), padding=(0, 0, 0))
-            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=2, groups=2, 
-                                               kernel_size=(1, 14, 14), stride=(1, 14, 14), padding=(0, 0, 0))
+            self.s_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=2, groups=2, kernel_size=(4, 7, 7), stride=(4, 7, 7), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=2, groups=2, kernel_size=(1, 14, 14), stride=(1, 14, 14), padding=(0, 0, 0))
         elif dim == self.args.ADAPTER.WIDTH // 2:
-            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=4, groups=4, 
-                                               kernel_size=(4, 5, 5), stride=(4, 3, 3), padding=(0, 0, 0))
-            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=4, groups=4, 
-                                               kernel_size=(1, 7, 7), stride=(1, 7, 7), padding=(0, 0, 0))
-        else:  # dim == self.args.ADAPTER.WIDTH (final stage)
-            self.s_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=8, groups=8, 
-                                               kernel_size=(4, 4, 4), stride=(4, 3, 3), padding=(0, 0, 0))
-            self.t_attn = ResNet_DeformAttention(cfg=cfg, dim=self.adapter_channels, heads=8, groups=8, 
-                                               kernel_size=(1, 7, 7), stride=(1, 7, 7), padding=(0, 0, 0))
-        
-        self.gelu = nn.GELU()
-        
-        # Dimension restoration
-        self.up = nn.Conv3d(self.adapter_channels, self.out_channels, kernel_size=1)
-        self.gelu2 = nn.GELU()
-        
-        # Initialize adapter weights to zero (residual learning)
-        nn.init.constant_(self.up.weight, 0)
-        nn.init.constant_(self.up.bias, 0)
-        
-    def forward(self, x):
-        # Input: (B*T, C, H, W) -> reshape to (B, C, T, H, W)
-        x_in = x
-        B_T, C, H, W = x.shape
-        B = B_T // self.num_frames
-        
-        # Only apply adapter if we have the expected number of frames
-        if B_T % self.num_frames == 0:
-            x = x.reshape(B, self.num_frames, C, H, W).permute(0, 2, 1, 3, 4)  # (B, C, T, H, W)
-            
-            # Down-project
-            x = self.down(x)
-            x = self.gelu1(x)
-            
-            # Add positional encoding
-            x = x + self.pos_embed(x)
-            
-            # Spatial Deformable Attention
-            xs = x + self.s_attn(self.s_ln(x))
-            
-            # Temporal Deformable Attention  
-            xt = x + self.t_attn(self.t_ln(x))
-            
-            # Fuse pathways - exact same as ViT version
-            x = (xs + xt) / 2
-            x = self.gelu(x)
-            
-            # Up-project
-            x = self.up(x)
-            x = self.gelu2(x)
-            
-            # Back to original format
-            x = x.permute(0, 2, 1, 3, 4).contiguous().reshape(B_T, C, H, W)  # Back to (B*T, C, H, W)
-            
-            return x + x_in
+            self.s_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=4, groups=4, kernel_size=(4, 5, 5), stride=(4, 3, 3), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=4, groups=4, kernel_size=(1, 7, 7), stride=(1, 7, 7), padding=(0, 0, 0))
         else:
-            # If frames don't match, just return identity (no adaptation)
-            return x_in
+            self.s_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=8, groups=8, kernel_size=(4, 4, 4), stride=(4, 3, 3), padding=(0, 0, 0))
+            self.t_attn = ResNet_DeformAttention(dim=self.adapter_channels, heads=8, groups=8, kernel_size=(1, 7, 7), stride=(1, 7, 7), padding=(0, 0, 0))
+        self.gelu = nn.GELU()
+
+        self.up = nn.Conv3d(in_channels=self.adapter_channels, out_channels=self.out_channels, kernel_size=(1, 1, 1))
+
+    def forward(self, x):
+        # bt c h w
+        x_in = x
+
+        x = rearrange(x, '(b t) c h w -> b c t h w', t=self.args.DATA.NUM_INPUT_FRAMES)
+        x = self.down(x)
+
+        x = x + self.pos_embed(x)
+
+        # Spatial Deformable Attention
+        xs = x + self.s_attn(self.s_ln(x))
+
+        # Temporal Deformable Attention
+        xt = x + self.t_attn(self.t_ln(x))
+
+        x = (xs + xt) / 2
+        x = self.gelu(x)
+
+        x = self.up(x)
+        x = rearrange(x, 'b c t h w -> (b t) c h w')
+
+        x += x_in
+        return x
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, cfg):
@@ -547,10 +490,13 @@ class D2ST(nn.Module):
         
         # D2ST Adapters for each stage
         adapter_scale = self.args.ADAPTER.ADAPTER_SCALE
-        self.adapter1 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 8, self.num_frames)
-        self.adapter2 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 4, self.num_frames)
-        self.adapter3 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 2, self.num_frames)
-        self.adapter4 = ResNet_D2ST_Adapter(self.args, self.feature_dim, self.num_frames)
+        self.adapter1 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 8)
+        self.adapter2 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 4)
+        self.adapter3 = ResNet_D2ST_Adapter(self.args, self.feature_dim // 2)
+        self.adapter4 = ResNet_D2ST_Adapter(self.args, self.feature_dim)
+        
+        # Initialize adapter weights to zero - CRITICAL for convergence!
+        self.init_adapter_weights()
         
         # Freeze backbone weights - only train adapters
         self.freeze_backbone_weights()
@@ -571,6 +517,18 @@ class D2ST(nn.Module):
         # zero-initialize Adapters
         for n1, m1 in self.named_modules():
             if 'Adapter' in n1:
+                for n2, m2 in m1.named_modules():
+                    if 'up' in n2:
+                        logger.info('init:  {}.{}'.format(n1, n2))
+                        nn.init.constant_(m2.weight, 0)
+                        nn.init.constant_(m2.bias, 0)
+
+    def init_adapter_weights(self):
+        """Initialize adapter weights to zero - CRITICAL for convergence"""
+        logger.info("Initializing adapter weights to zero")
+        # zero-initialize Adapters (exactly like original)
+        for n1, m1 in self.named_modules():
+            if 'adapter' in n1:  # Changed from 'Adapter' to 'adapter' for our naming
                 for n2, m2 in m1.named_modules():
                     if 'up' in n2:
                         logger.info('init:  {}.{}'.format(n1, n2))
@@ -630,7 +588,7 @@ class D2ST(nn.Module):
         return x
 
     def get_feat_resnet(self, x):
-        """ResNet feature extraction with D2ST adapters"""
+        """ResNet feature extraction with D2ST adapters - EXACT match to original"""
         # x shape: (B*T, C, H, W)
         
         # Stage 1: conv1, bn1, relu, maxpool, layer1
@@ -651,9 +609,7 @@ class D2ST(nn.Module):
         
         # Stage 5: avgpool (following original implementation)
         x = self.stage5(x)
-        x = x.squeeze()  # Remove spatial dimensions, following original
-        
-        return x
+        return x.squeeze()  # EXACT match to original - squeeze instead of flatten!
 
     def set_train(self):
         """Set training mode"""

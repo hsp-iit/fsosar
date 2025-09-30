@@ -543,7 +543,7 @@ class D2ST(nn.Module):
         self.stage2 = list(backbone.children())[5]  # layer2
         self.stage3 = list(backbone.children())[6]  # layer3  
         self.stage4 = list(backbone.children())[7]  # layer4
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.stage5 = nn.Sequential(*list(backbone.children())[8:-1])  # avgpool (excluding final FC)
         
         # D2ST Adapters for each stage
         adapter_scale = self.args.ADAPTER.ADAPTER_SCALE
@@ -649,9 +649,9 @@ class D2ST(nn.Module):
         x = self.stage4(x)
         x = self.adapter4(x)
         
-        # Global average pooling
-        x = self.avgpool(x)
-        x = x.flatten(1)  # (B*T, feature_dim)
+        # Stage 5: avgpool (following original implementation)
+        x = self.stage5(x)
+        x = x.squeeze()  # Remove spatial dimensions, following original
         
         return x
 
@@ -685,74 +685,36 @@ class D2ST(nn.Module):
 
     def compute_similarity_matrix(self, support_features, query_features, support_labels):
         """Compute similarity matrix using original D2ST Bi-MHM approach"""
+        # Both ViT and ResNet use the same similarity computation in original D2ST
+        
+        # Reshape to include temporal dimension - BOTH use ADAPTER.WIDTH as feature dim
         if self.backbone_type == "ViT":
-            # Reshape to include temporal dimension
-            support_features = support_features.reshape(-1, self.num_frames, self.args.ADAPTER.WIDTH)
-            query_features = query_features.reshape(-1, self.num_frames, self.args.ADAPTER.WIDTH)
-            
-            unique_labels = torch.unique(support_labels)
-
-            # Compute class prototypes
-            support_features_per_class = [torch.mean(torch.index_select(support_features, 0, self.extract_class_indices(support_labels, c)), dim=0) for c in unique_labels]
-            support_features = torch.stack(support_features_per_class)
-
-            support_num = support_features.shape[0]
-            query_num = query_features.shape[0]
-
-            support_features = support_features.unsqueeze(0).repeat(query_num, 1, 1, 1)
-            support_features = rearrange(support_features, 'q s t c -> q (s t) c')
-
-            frame_sim = torch.matmul(F.normalize(support_features, dim=2), F.normalize(query_features, dim=2).permute(0, 2, 1)).reshape(query_num, support_num, self.num_frames, self.num_frames)
-            dist = 1 - frame_sim
-
-            # Bi-MHM
-            class_dist = dist.min(3)[0].sum(2) + dist.min(2)[0].sum(2)
-
-            return -class_dist
+            feat_dim = self.args.ADAPTER.WIDTH
         else:
-            # ResNet approach
-            B_T_s, feat_dim = support_features.shape
-            B_T_q = query_features.shape[0]
+            feat_dim = self.args.ADAPTER.WIDTH  # Not self.feature_dim!
             
-            # Reshape to (B, T, feat_dim)
-            support_features = support_features.view(-1, self.num_frames, feat_dim)
-            query_features = query_features.view(-1, self.num_frames, feat_dim)
-            
-            # Get unique classes and compute class prototypes
-            unique_labels = torch.unique(support_labels)
-            class_prototypes = []
-            
-            for label in unique_labels:
-                mask = support_labels == label
-                class_support = support_features[mask]  # (N_class, T, feat_dim)
-                prototype = class_support.mean(0)  # (T, feat_dim) - average across samples
-                class_prototypes.append(prototype)
-            
-            class_prototypes = torch.stack(class_prototypes)  # (N_classes, T, feat_dim)
-            
-            # Compute frame-wise similarity for each query
-            num_queries = query_features.shape[0]
-            num_classes = class_prototypes.shape[0]
-            
-            # Expand dimensions for broadcasting
-            prototypes_expanded = class_prototypes.unsqueeze(0).repeat(num_queries, 1, 1, 1)  # (N_q, N_c, T, feat_dim)
-            queries_expanded = query_features.unsqueeze(1).repeat(1, num_classes, 1, 1)  # (N_q, N_c, T, feat_dim)
-            
-            # Normalize features
-            prototypes_norm = F.normalize(prototypes_expanded, dim=-1)
-            queries_norm = F.normalize(queries_expanded, dim=-1)
-            
-            # Frame-wise similarity: (N_q, N_c, T_support, T_query)
-            frame_sim = torch.matmul(prototypes_norm, queries_norm.permute(0, 1, 3, 2))
-            
-            # Convert to distance
-            dist = 1 - frame_sim
-            
-            # Bi-MHM distance (simpler than OTAM)
-            class_dist = dist.min(3)[0].sum(2) + dist.min(2)[0].sum(2)  # (N_q, N_c)
-            
-            # Convert back to similarity (negative distance)
-            return -class_dist
+        support_features = support_features.reshape(-1, self.num_frames, feat_dim)
+        query_features = query_features.reshape(-1, self.num_frames, feat_dim)
+        
+        unique_labels = torch.unique(support_labels)
+
+        # Compute class prototypes - EXACT same as original
+        support_features_per_class = [torch.mean(torch.index_select(support_features, 0, self.extract_class_indices(support_labels, c)), dim=0) for c in unique_labels]
+        support_features = torch.stack(support_features_per_class)
+
+        support_num = support_features.shape[0]
+        query_num = query_features.shape[0]
+
+        support_features = support_features.unsqueeze(0).repeat(query_num, 1, 1, 1)
+        support_features = rearrange(support_features, 'q s t c -> q (s t) c')
+
+        frame_sim = torch.matmul(F.normalize(support_features, dim=2), F.normalize(query_features, dim=2).permute(0, 2, 1)).reshape(query_num, support_num, self.num_frames, self.num_frames)
+        dist = 1 - frame_sim
+
+        # Bi-MHM - EXACT same for both ViT and ResNet
+        class_dist = dist.min(3)[0].sum(2) + dist.min(2)[0].sum(2)
+
+        return -class_dist
 
     def forward(self, support_set, support_labels, query_set, batch_class_list):
         """Forward pass for few-shot learning"""

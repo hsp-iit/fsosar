@@ -507,7 +507,7 @@ def save_confidence_scores(similarity_matrix, target_labels, model_name, dataset
 
 def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batch_class_list, 
                          classes_names, model_name, dataset_name, os_loss_name, logits=None, 
-                         unknown_labels=None, os_threshold=0.5):
+                         unknown_labels=None, os_threshold=0.5, add_unknown_class=True):
     """
     Save confusion matrix data incrementally for later visualization
     Includes unknown queries that are incorrectly classified as known classes
@@ -524,6 +524,8 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
         logits: Model logits (for discriminator-based os_prob)
         unknown_labels: True class labels for unknown samples (for proper confusion matrix entries)
         os_threshold: Threshold for considering unknown as wrongly classified (default: 0.5)
+        add_unknown_class: If True (default), add "unknown" class to confusion matrix and handle unknown predictions properly.
+                          If False, keeps current behavior (only add misclassified unknowns to their true class)
     """
     import pickle
     import os
@@ -540,16 +542,25 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
         with open(filename, 'rb') as f:
             cm_data = pickle.load(f)
     else:
-        # Only use known classes in confusion matrix
-        matrix_size = len(classes_names)
+        # Set up matrix size and class names based on add_unknown_class flag
+        if add_unknown_class:
+            # Add "unknown" class to the list
+            matrix_classes = classes_names + ["unknown"]
+            matrix_size = len(matrix_classes)
+        else:
+            # Only use known classes in confusion matrix
+            matrix_classes = classes_names
+            matrix_size = len(classes_names)
+            
         cm_data = {
             'confusion_matrix': np.zeros((matrix_size, matrix_size), dtype=int),
-            'class_names': classes_names,
+            'class_names': matrix_classes,
             'model_type': model_name,
             'dataset': dataset_name,
             'os_loss': os_loss_name,
             'episode_count': 0,
             'os_threshold': os_threshold,
+            'add_unknown_class': add_unknown_class,
             'unknown_correctly_rejected': 0,
             'unknown_misclassified_count': 0
         }
@@ -581,12 +592,29 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
     if known_mask.sum() > 0:
         known_predictions = predictions[known_mask]
         known_targets = target_labels_np[known_mask]
+        known_os_probs = os_prob[known_mask]
         
-        # Map predictions and targets to global class indices
-        for pred_idx, true_idx in zip(known_predictions, known_targets):
-            pred_class_idx = int(batch_class_list_np[pred_idx])
-            true_class_idx = int(batch_class_list_np[true_idx])
-            cm_data['confusion_matrix'][true_class_idx, pred_class_idx] += 1
+        if add_unknown_class:
+            # When add_unknown_class=True, check if known queries are predicted as unknown
+            unknown_class_idx = len(classes_names)  # Index of "unknown" class
+            
+            for pred_idx, true_idx, os_prob_val in zip(known_predictions, known_targets, known_os_probs):
+                true_class_idx = int(batch_class_list_np[true_idx])
+                
+                # Check if model predicts this known query as unknown (os_prob <= threshold)
+                if os_prob_val <= os_threshold:
+                    # Known query predicted as unknown -> [true_known_class, unknown]
+                    cm_data['confusion_matrix'][true_class_idx, unknown_class_idx] += 1
+                else:
+                    # Known query predicted as known class -> normal confusion matrix entry
+                    pred_class_idx = int(batch_class_list_np[pred_idx])
+                    cm_data['confusion_matrix'][true_class_idx, pred_class_idx] += 1
+        else:
+            # Original behavior: only use similarity matrix predictions (no unknown prediction handling)
+            for pred_idx, true_idx in zip(known_predictions, known_targets):
+                pred_class_idx = int(batch_class_list_np[pred_idx])
+                true_class_idx = int(batch_class_list_np[true_idx])
+                cm_data['confusion_matrix'][true_class_idx, pred_class_idx] += 1
     
     # Process unknown queries (target_labels == -1)
     unknown_mask = target_labels_np == -1
@@ -602,25 +630,43 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
         else:
             unknown_true_labels = None
         
-        for i, pred_idx in enumerate(unknown_predictions):
-            pred_class_idx = int(batch_class_list_np[pred_idx])
+        if add_unknown_class:
+            # When add_unknown_class=True, treat unknowns as a separate class
+            unknown_class_idx = len(classes_names)  # Index of "unknown" class
             
-            # Check if unknown is wrongly classified as known (os_prob > threshold)
-            if unknown_os_probs[i] > os_threshold:
-                # Only add to confusion matrix if we have the true class labels for unknown samples
-                if unknown_true_labels is not None:
-                    # Use the actual true class of the unknown sample
-                    true_unknown_class_idx = int(unknown_true_labels[i])
-                    # Add this as a misclassification in the confusion matrix
-                    # [true_class, predicted_class] - true class is the unknown's actual class
-                    cm_data['confusion_matrix'][true_unknown_class_idx, pred_class_idx] += 1
-                    cm_data['unknown_misclassified_count'] += 1
+            for i, pred_idx in enumerate(unknown_predictions):
+                pred_class_idx = int(batch_class_list_np[pred_idx])
+                
+                # Check if model predicts unknown (os_prob <= threshold)
+                if unknown_os_probs[i] <= os_threshold:
+                    # Model correctly predicts unknown -> diagonal entry for unknown class
+                    cm_data['confusion_matrix'][unknown_class_idx, unknown_class_idx] += 1
+                    cm_data['unknown_correctly_rejected'] += 1
                 else:
-                    # Just count unknown misclassified without adding to matrix
+                    # Model predicts known class when true class is unknown -> off-diagonal entry
+                    cm_data['confusion_matrix'][unknown_class_idx, pred_class_idx] += 1
                     cm_data['unknown_misclassified_count'] += 1
-            else:
-                # Unknown correctly rejected - just count it but don't add to matrix
-                cm_data['unknown_correctly_rejected'] += 1
+        else:
+            # Original behavior: only add misclassified unknowns to their true class
+            for i, pred_idx in enumerate(unknown_predictions):
+                pred_class_idx = int(batch_class_list_np[pred_idx])
+                
+                # Check if unknown is wrongly classified as known (os_prob > threshold)
+                if unknown_os_probs[i] > os_threshold:
+                    # Only add to confusion matrix if we have the true class labels for unknown samples
+                    if unknown_true_labels is not None:
+                        # Use the actual true class of the unknown sample
+                        true_unknown_class_idx = int(unknown_true_labels[i])
+                        # Add this as a misclassification in the confusion matrix
+                        # [true_class, predicted_class] - true class is the unknown's actual class
+                        cm_data['confusion_matrix'][true_unknown_class_idx, pred_class_idx] += 1
+                        cm_data['unknown_misclassified_count'] += 1
+                    else:
+                        # Just count unknown misclassified without adding to matrix
+                        cm_data['unknown_misclassified_count'] += 1
+                else:
+                    # Unknown correctly rejected - just count it but don't add to matrix
+                    cm_data['unknown_correctly_rejected'] += 1
     
     # Increment episode count
     cm_data['episode_count'] += 1

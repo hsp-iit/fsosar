@@ -415,6 +415,96 @@ def save_tsne_features(features, episode_class_names, model_name, dataset_name, 
     return filename
 
 
+def save_confidence_scores(similarity_matrix, target_labels, model_name, dataset_name, os_loss_name, logits=None):
+    """
+    Save confidence scores for known and unknown queries incrementally for later histogram analysis
+    
+    Args:
+        similarity_matrix: Predictions similarity matrix
+        target_labels: Labels for query samples (-1 for unknown)
+        model_name: Name of the model (e.g., 'SAFSAR', 'STRM', 'D2ST')
+        dataset_name: Name of the dataset (e.g., 'HMDB51', 'UCF101')
+        os_loss_name: Name of the open set loss (e.g., 'softmax', 'discriminator')
+        logits: Model logits (for discriminator-based confidence)
+    """
+    import pickle
+    import os
+    import numpy as np
+    import torch
+    
+    # Create confidence scores directory with structured path
+    scores_dir = f'data_analysis/confidence_scores/{model_name}/{dataset_name}/{os_loss_name}'
+    os.makedirs(scores_dir, exist_ok=True)
+    filename = f'{scores_dir}/confidence_scores.pkl'
+    
+    # Load existing data or create new dictionary
+    if os.path.exists(filename):
+        with open(filename, 'rb') as f:
+            scores_data = pickle.load(f)
+    else:
+        scores_data = {
+            'known_scores': [],
+            'unknown_scores': [],
+            'model_type': model_name,
+            'dataset': dataset_name,
+            'os_loss': os_loss_name,
+            'episode_count': 0
+        }
+    
+    # Compute confidence scores based on the open set loss method
+    if os_loss_name in ["softmax", "eos"]:
+        # For implicit methods, use max similarity as confidence
+        if model_name == "STRM":
+            confidence_scores = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
+        elif model_name in ["SAFSAR", "D2ST"]:
+            confidence_scores = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
+    elif os_loss_name == "discriminator" and logits is not None:
+        # For explicit discriminator method
+        disc_prob = logits["disc_prob"]
+        if disc_prob is not None:
+            confidence_scores = disc_prob.squeeze(-1).detach().cpu().numpy()
+        else:
+            # Fallback to max similarity if disc_prob not available
+            confidence_scores = similarity_matrix.max(dim=-1)[0].detach().cpu().numpy()
+    elif os_loss_name == "gc":
+        # For GC method
+        gc_probs = torch.nn.functional.softmax(similarity_matrix, dim=-1)
+        confidence_scores = 1 - gc_probs[:, -1].detach().cpu().numpy()  # 1 - unknown_prob = known_prob
+    else:
+        raise ValueError(f"Unsupported os_loss_name: {os_loss_name}")
+    
+    # Convert target labels to numpy
+    target_labels_np = target_labels.detach().cpu().numpy()
+    
+    # Separate known and unknown scores
+    known_mask = target_labels_np != -1
+    unknown_mask = target_labels_np == -1
+    
+    # Append known scores
+    if known_mask.sum() > 0:
+        known_confidences = confidence_scores[known_mask].tolist()
+        scores_data['known_scores'].extend(known_confidences)
+    
+    # Append unknown scores
+    if unknown_mask.sum() > 0:
+        unknown_confidences = confidence_scores[unknown_mask].tolist()
+        scores_data['unknown_scores'].extend(unknown_confidences)
+    
+    # Increment episode count
+    scores_data['episode_count'] += 1
+    
+    # Save updated scores data
+    with open(filename, 'wb') as f:
+        pickle.dump(scores_data, f)
+    
+    # Print summary
+    total_known = len(scores_data['known_scores'])
+    total_unknown = len(scores_data['unknown_scores'])
+    print(f"Confidence scores updated at {filename} - Known: {total_known}, Unknown: {total_unknown} from {scores_data['episode_count']} episodes")
+    
+    return filename
+
+
 def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batch_class_list, 
                          classes_names, model_name, dataset_name, os_loss_name, logits=None, 
                          unknown_labels=None, os_threshold=0.5):
@@ -517,11 +607,17 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
             
             # Check if unknown is wrongly classified as known (os_prob > threshold)
             if unknown_os_probs[i] > os_threshold:
-                # Use the actual true class of the unknown sample
-                true_unknown_class_idx = int(unknown_true_labels[i])
-                # Add this as a misclassification in the confusion matrix
-                # [true_class, predicted_class] - true class is the unknown's actual class
-                cm_data['confusion_matrix'][true_unknown_class_idx, pred_class_idx] += 1
+                # Only add to confusion matrix if we have the true class labels for unknown samples
+                if unknown_true_labels is not None:
+                    # Use the actual true class of the unknown sample
+                    true_unknown_class_idx = int(unknown_true_labels[i])
+                    # Add this as a misclassification in the confusion matrix
+                    # [true_class, predicted_class] - true class is the unknown's actual class
+                    cm_data['confusion_matrix'][true_unknown_class_idx, pred_class_idx] += 1
+                    cm_data['unknown_misclassified_count'] += 1
+                else:
+                    # Just count unknown misclassified without adding to matrix
+                    cm_data['unknown_misclassified_count'] += 1
             else:
                 # Unknown correctly rejected - just count it but don't add to matrix
                 cm_data['unknown_correctly_rejected'] += 1

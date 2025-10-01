@@ -10,5 +10,9 @@
     "way": 5,
     "seq_len": 8,
     "debug_loader": false,
-    "query_per_class_test": 1
+    "query_per_class_test": 1,
+    "save_features": false,
+    "compute_confusion_matrix": false,
+    "save_confidence_scores": false,
+    "max_steps": 100000000
 }

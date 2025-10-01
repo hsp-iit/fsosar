@@ -17,7 +17,7 @@ from utils import is_address_in_use
 import copy
 from models import SAFSAR, STRM
 from models.d2st import D2ST
-from utils import visual_debug, set_seeds, save_confusion_matrix
+from utils import visual_debug, set_seeds, save_confusion_matrix, save_confidence_scores
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
@@ -291,6 +291,13 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                     similarity_matrix, support_labels, all_labels, batch_class_list,
                     config["classes_names"], config["model_name"], config["data_name"], config["os_loss"],
                     logits=logits, unknown_labels=unknowns_tensor
+                )
+
+            # Confidence scores saving must be called only during evaluation
+            if config.get("save_confidence_scores", False) and not training and rank == 0:
+                save_confidence_scores(
+                    similarity_matrix, all_labels, config["model_name"], config["data_name"], config["os_loss"],
+                    logits=logits
                 )
 
             # Optimization

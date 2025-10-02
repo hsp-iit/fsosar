@@ -112,7 +112,8 @@ class SAFSAR(nn.Module):
         support_features_mean = torch.stack(support_features_mean)
         # add textual features
         if self.use_textual_embedding:  # since torch.unique() orders the results, we use torch.arange to get correctly the class names
-            textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[torch.arange(0, self.way).cuda()].long()]
+            n_supp_classes = self.way if self.gc else self.way-1
+            textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[torch.arange(0, n_supp_classes).cuda()].long()]
             raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_features_mean, textual_embeddings)]
             support_mm_features = [self.mm_fusion_module(emb)[0] for emb in raw_support_mm_features]
             support_mm_features = torch.stack(support_mm_features)

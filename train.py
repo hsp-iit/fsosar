@@ -261,17 +261,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
-                if os_loss == "gc":
-                    if model_name == "SAFSAR":
-                        rescale_function = lambda x: (x+1)/2
-                    if model_name in ["STRM", "TRX", "OTAM"]:
-                        rescale_function = torch.exp
-                    if model_name == "D2ST":
-                        rescale_function = lambda x: (x+1)/2
-
-                else:
-                    rescale_function = None
-                unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix, rescale_function)
+                unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix)
                 if os_loss == "discriminator":
                     if unknown_losses["os_loss"] is not None:
                         if os_loss == "discriminator":
@@ -363,7 +353,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                         metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], all_labels[known_indices])}
                 else:  # explicit method
                     if os_loss == "discriminator":
-                        os_score = logits["disc_prob"].squeeze(1)
+                        os_score = logits["disc_prob"]
                     elif os_loss == "gc":
                         os_score = torch.nn.functional.softmax(similarity_matrix, dim=-1)[:, -1]
                         similarity_matrix = similarity_matrix[:, :-1]

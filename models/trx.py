@@ -5,24 +5,14 @@ import math
 from itertools import combinations
 from torch.autograd import Variable
 import torchvision.models as models
-from utils import compute_accuracy, BinaryClassificationModelSTRM
+from utils import compute_accuracy, BinaryClassificationModelSTRM, split_first_dim_linear
 from einops import rearrange
 import copy
 
-
-def extract_class_indices(labels, which_class):
-    """
-    Helper method to extract the indices of elements which have the specified label.
-    """
-    class_mask = torch.eq(labels, which_class)
-    class_mask_indices = torch.nonzero(class_mask, as_tuple=False)
-    return torch.reshape(class_mask_indices, (-1,))
-
+NUM_SAMPLES = 1
 
 class PositionalEncoding(nn.Module):
-    """
-    Positional encoding from the Transformer paper.
-    """
+    "Implement the PE function."
     def __init__(self, d_model, dropout, max_len=5000, pe_scale_factor=0.1):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
@@ -42,30 +32,27 @@ class PositionalEncoding(nn.Module):
 
 
 class TemporalCrossTransformer(nn.Module):
-    """
-    A temporal cross transformer for a single tuple cardinality. E.g. pairs or triples.
-    """
     def __init__(self, args, temporal_set_size=3):
         super(TemporalCrossTransformer, self).__init__()
        
         self.args = args
         self.temporal_set_size = temporal_set_size
 
-        max_len = int(self.args["seq_len"] * 1.5)
-        self.pe = PositionalEncoding(self.args["trans_linear_in_dim"], self.args["trans_dropout"], max_len=max_len)
+        max_len = int(self.args.seq_len * 1.5)
+        self.pe = PositionalEncoding(self.args.trans_linear_in_dim, self.args.trans_dropout, max_len=max_len)
 
-        self.k_linear = nn.Linear(self.args["trans_linear_in_dim"] * temporal_set_size, self.args["trans_linear_out_dim"])
-        self.v_linear = nn.Linear(self.args["trans_linear_in_dim"] * temporal_set_size, self.args["trans_linear_out_dim"])
+        self.k_linear = nn.Linear(self.args.trans_linear_in_dim * temporal_set_size, self.args.trans_linear_out_dim)#.cuda()
+        self.v_linear = nn.Linear(self.args.trans_linear_in_dim * temporal_set_size, self.args.trans_linear_out_dim)#.cuda()
 
-        self.norm_k = nn.LayerNorm(self.args["trans_linear_out_dim"])
-        self.norm_v = nn.LayerNorm(self.args["trans_linear_out_dim"])
+        self.norm_k = nn.LayerNorm(self.args.trans_linear_out_dim)
+        self.norm_v = nn.LayerNorm(self.args.trans_linear_out_dim)
         
         self.class_softmax = torch.nn.Softmax(dim=1)
         
         # generate all tuples
-        frame_idxs = [i for i in range(self.args["seq_len"])]
+        frame_idxs = [i for i in range(self.args.seq_len)]
         frame_combinations = combinations(frame_idxs, temporal_set_size)
-        self.tuples = nn.ParameterList([nn.Parameter(torch.tensor(comb), requires_grad=False) for comb in frame_combinations])
+        self.tuples = [torch.tensor(comb).cuda() for comb in frame_combinations]
         self.tuples_len = len(self.tuples) 
     
     
@@ -98,17 +85,17 @@ class TemporalCrossTransformer(nn.Module):
         unique_labels = torch.unique(support_labels)
 
         # init tensor to hold distances between every support tuple and every target tuple
-        all_distances_tensor = torch.zeros(n_queries, self.args["way"], device=queries.device)
-        all_prototypes = torch.zeros(n_queries, self.args["way"], self.tuples_len, self.args["trans_linear_out_dim"], device=queries.device)
+        all_distances_tensor = torch.zeros(n_queries, self.args.way).cuda()
+        all_prototypes = torch.zeros(n_queries, self.args.way, 28, 1152).cuda() # 20 x 5 x 1152
 
         for label_idx, c in enumerate(unique_labels):
         
             # select keys and values for just this class
-            class_k = torch.index_select(mh_support_set_ks, 0, extract_class_indices(support_labels, c))
-            class_v = torch.index_select(mh_support_set_vs, 0, extract_class_indices(support_labels, c))
+            class_k = torch.index_select(mh_support_set_ks, 0, self._extract_class_indices(support_labels, c))
+            class_v = torch.index_select(mh_support_set_vs, 0, self._extract_class_indices(support_labels, c))
             k_bs = class_k.shape[0]
 
-            class_scores = torch.matmul(mh_queries_ks.unsqueeze(1), class_k.transpose(-2,-1)) / math.sqrt(self.args["trans_linear_out_dim"])
+            class_scores = torch.matmul(mh_queries_ks.unsqueeze(1), class_k.transpose(-2,-1)) / math.sqrt(self.args.trans_linear_out_dim)
 
             # reshape etc. to apply a softmax for each query tuple
             class_scores = class_scores.permute(0,2,1,3)
@@ -131,62 +118,88 @@ class TemporalCrossTransformer(nn.Module):
             distance = distance * -1
             c_idx = c.long()
             all_distances_tensor[:,c_idx] = distance
-            all_prototypes[:,c_idx] = diff  # Store the differences for discriminator
+            all_prototypes[:,c_idx] = (mh_queries_vs - query_prototype) # 20 x 5 x 1152
         
         return all_distances_tensor, all_prototypes
 
-
+    @staticmethod
+    def _extract_class_indices(labels, which_class):
+        """
+        Helper method to extract the indices of elements which have the specified label.
+        :param labels: (torch.tensor) Labels of the context set.
+        :param which_class: Label for which indices are extracted.
+        :return: (torch.tensor) Indices in the form of a mask that indicate the locations of the specified label.
+        """
+        class_mask = torch.eq(labels, which_class)  # binary mask of labels equal to which_class
+        class_mask_indices = torch.nonzero(class_mask)  # indices of labels equal to which class
+        return torch.reshape(class_mask_indices, (-1,))  # reshape to be a 1D vector
 class TRX(nn.Module):
     """
-    TRX model adapted for the FSOSAR framework
+    Standard Resnet connected to a Temporal Cross Transformer.
+    Adapted for FSOSAR framework.
     """
     def __init__(self, config, disc=None, gc=None, dp=None):
         super(TRX, self).__init__()
+
+        self.train()
         
-        # Set up backbone
-        self.backbone_name = config.get("backbone", "resnet50")
-        if self.backbone_name == "resnet18":
-            backbone = models.resnet18(pretrained=True)  
-        elif self.backbone_name == "resnet34":
-            backbone = models.resnet34(pretrained=True)
-        elif self.backbone_name == "resnet50":
-            backbone = models.resnet50(pretrained=True)
+        # Convert config dict to args-like object for compatibility with original TRX
+        class ArgsObject:
+            def __init__(self, config_dict):
+                for key, value in config_dict.items():
+                    setattr(self, key, value)
+        
+        self.args = ArgsObject(config)
+        self.seq_len = self.args.seq_len
+        
+        # Set backbone method from config
+        backbone_name = config.get("backbone", "resnet50")
+        if backbone_name == "resnet18":
+            self.args.method = "resnet18"
+        elif backbone_name == "resnet34":
+            self.args.method = "resnet34"
+        elif backbone_name == "resnet50":
+            self.args.method = "resnet50"
         else:
-            raise ValueError(f"Unsupported backbone: {self.backbone_name}")
-            
-        # Remove the final classification layer
-        self.backbone = nn.Sequential(*list(backbone.children())[:-1])
-        
+            raise ValueError(f"Unsupported backbone: {backbone_name}")
+
+        # Set up backbone
+        if self.args.method == "resnet18":
+            resnet = models.resnet18(pretrained=True)  
+        elif self.args.method == "resnet34":
+            resnet = models.resnet34(pretrained=True)
+        elif self.args.method == "resnet50":
+            resnet = models.resnet50(pretrained=True)
+
+        last_layer_idx = -1
+        self.resnet = nn.Sequential(*list(resnet.children())[:last_layer_idx])
+
         # Freeze backbone if specified
         if config.get("freeze_backbone", True):
-            for param in self.backbone.parameters():
+            for param in self.resnet.parameters():
                 param.requires_grad = False
-        
-        # Framework attributes
-        self.way = config["way"]
-        self.shot = config["shot"] 
-        self.seq_len = config["seq_len"]
-        self.query_per_class = config["query_per_class"]
-        self.query_per_class_test = config["query_per_class_test"]
-        self.train_unique_classes = config["train_unique_classes"]
-        
-        # TRX specific parameters
-        config["trans_linear_in_dim"] = 2048 if self.backbone_name == "resnet50" else 512
-        config["trans_linear_out_dim"] = config.get("trans_linear_out_dim", 1152)
-        config["temp_set"] = config.get("temp_set", [2, 3])
-        config["trans_dropout"] = config.get("trans_dropout", 0.1)
-        
-        # Build transformers
-        self.transformers = nn.ModuleList([TemporalCrossTransformer(config, s) for s in config["temp_set"]])
-        
+
+        # Set TRX specific parameters
+        if backbone_name == "resnet50":
+            self.args.trans_linear_in_dim = 2048
+        else:
+            self.args.trans_linear_in_dim = 512
+            
+        self.args.trans_linear_out_dim = config.get("trans_linear_out_dim", 1152)
+        self.args.temp_set = config.get("temp_set", [2, 3])
+        self.args.trans_dropout = config.get("trans_dropout", 0.1)
+
+        self.transformers = nn.ModuleList([TemporalCrossTransformer(self.args, s) for s in self.args.temp_set]) 
+
         # Open-set components
         self.disc = disc
         self.gc = gc
         if disc:
-            feature_dim = config["trans_linear_out_dim"]  # Use output dim since prototypes are in transformed space
+            feature_dim = self.args.trans_linear_out_dim
             self.discriminator = BinaryClassificationModelSTRM(feature_dim).cuda()
         if gc:
-            self.garbage_support = nn.Parameter(torch.randn(1, self.seq_len, config["trans_linear_in_dim"]), requires_grad=True).cuda()
+            self.garbage_prototype = nn.Parameter(torch.zeros(1, self.args.seq_len, self.args.trans_linear_in_dim), requires_grad=True).cuda()
+            self.garbage_initialized = False
             
         # Framework compatibility
         self.debug_samples_counter = 0
@@ -196,27 +209,6 @@ class TRX(nn.Module):
         self.dataset_name = config.get("data_name", "unknown_dataset")
         self.os_loss_name = config.get("os_loss", "unknown_loss")
 
-    def get_feats(self, support_images, target_images):
-        """
-        Extract features using backbone CNN
-        """
-        # Combine support and target for batch processing
-        all_images = torch.cat([support_images, target_images], dim=0)
-        all_features = self.backbone(all_images).squeeze()
-        
-        # Split back into support and target
-        n_support = support_images.shape[0]
-        support_features = all_features[:n_support]
-        target_features = all_features[n_support:]
-        
-        dim = int(support_features.shape[1])
-        
-        # Reshape to [batch, seq_len, features]
-        support_features = support_features.reshape(-1, self.seq_len, dim)
-        target_features = target_features.reshape(-1, self.seq_len, dim)
-        
-        return support_features, target_features
-
     def set_train(self):
         """Set model to training mode"""
         self.train()
@@ -225,33 +217,61 @@ class TRX(nn.Module):
         """Set model to evaluation mode"""
         self.eval()
 
+    def initialize_garbage_prototype(self, support_features):
+        """Initialize garbage prototype based on real feature statistics"""
+        with torch.no_grad():
+            # Compute statistics from real support features
+            feature_mean = support_features.mean(dim=(0, 1))  # Mean across batch and time
+            feature_std = support_features.std(dim=(0, 1))    # Std across batch and time
+            
+            # Initialize garbage prototype with same statistics
+            self.garbage_prototype.data = torch.normal(
+                mean=feature_mean.unsqueeze(0).expand(1, self.seq_len, -1),
+                std=feature_std.unsqueeze(0).expand(1, self.seq_len, -1)
+            )
+
     def forward(self, support_set, support_labels, target_set, batch_class_list=None, precomputed_context_features=None):
         """
-        Forward pass adapted for FSOSAR framework
+        Forward pass following original TRX implementation
         """
         # Reshape inputs to match expected format [batch*seq_len, C, H, W]
         n_support_total = support_set.shape[0]
         n_target_total = target_set.shape[0]
         
-        support_images = support_set.reshape(-1, 3, 224, 224)
+        context_images = support_set.reshape(-1, 3, 224, 224)
         target_images = target_set.reshape(-1, 3, 224, 224)
-        
-        # Extract features
-        support_features, target_features = self.get_feats(support_images, target_images)
+        context_labels = support_labels
+
+        # Extract features using backbone
+        context_features = self.resnet(context_images).squeeze()
+        target_features = self.resnet(target_images).squeeze()
+
+        dim = int(context_features.shape[1])
+
+        context_features = context_features.reshape(-1, self.args.seq_len, dim)
+        target_features = target_features.reshape(-1, self.args.seq_len, dim)
+
+        # Add garbage class support if needed
+        if self.gc and not self.garbage_initialized:
+            self.initialize_garbage_prototype(context_features)
+            self.garbage_initialized = True
 
         if self.gc:
-            support_labels = torch.cat([support_labels, torch.tensor([self.way-1], device=support_labels.device)], dim=0)
-            support_features = torch.cat([support_features, self.garbage_support], dim=0)
+            context_labels = torch.cat([context_labels, torch.tensor([self.args.way-1], device=context_labels.device)], dim=0)
+            context_features = torch.cat([context_features, self.garbage_prototype], dim=0)
+
+        # Apply transformers following original implementation
+        all_logits, all_prototypes = [t(context_features, context_labels, target_features) for t in self.transformers][0]
+        sample_logits = all_logits 
+        # sample_logits = torch.mean(sample_logits, dim=[-1])
+
+        # Use split_first_dim_linear as in original implementation
+        similarity_matrix = split_first_dim_linear(sample_logits, [NUM_SAMPLES, target_features.shape[0]])
         
-        # Apply transformers
-        all_results = [t(support_features, support_labels, target_features) for t in self.transformers]
-        all_logits = [result[0] for result in all_results]
-        all_prototypes = [result[1] for result in all_results]
-        
-        all_logits = torch.stack(all_logits, dim=-1)
-        similarity_matrix = torch.mean(all_logits, dim=[-1])
-        all_prototypes = torch.stack(all_prototypes)[0]
-        
+        # Remove extra dimension from split_first_dim_linear for FSOSAR compatibility
+        if similarity_matrix.dim() == 3 and similarity_matrix.shape[0] == 1:
+            similarity_matrix = similarity_matrix.squeeze(0)
+
         # Save features for analysis
         if self.save_features and batch_class_list is not None:
             from utils import save_tsne_features
@@ -259,7 +279,7 @@ class TRX(nn.Module):
             support_class_features = []
             for c in support_labels.unique():
                 class_mask = support_labels == c
-                class_features = support_features[class_mask].mean(dim=0).mean(dim=0)  # Average over samples and time
+                class_features = context_features[class_mask].mean(dim=0).mean(dim=0)  # Average over samples and time
                 support_class_features.append(class_features)
             support_class_features = torch.stack(support_class_features)
             
@@ -271,19 +291,17 @@ class TRX(nn.Module):
                 dataset_name=self.dataset_name,
                 os_loss_name=self.os_loss_name
             )
-        
-        # Add garbage class for GC
-        # if self.gc:
-        #     n_queries = similarity_matrix.shape[0]
-        #     garbage_scores = torch.zeros(n_queries, 1, device=similarity_matrix.device)
-        #     similarity_matrix = torch.cat([similarity_matrix, garbage_scores], dim=1)
-        
+
         # Discriminator for open-set detection
         disc_prob = None
         if self.disc:
-            predictions = torch.argmax(similarity_matrix, dim=-1)
-            best_diffs = all_prototypes[torch.arange(all_prototypes.shape[0]), predictions]
-            disc_prob = self.discriminator(best_diffs)
+            if self.disc:
+                predictions = torch.argmax(similarity_matrix, dim=-1)
+                best_diffs = all_prototypes[torch.arange(all_prototypes.shape[0]), predictions]
+                disc_prob = self.discriminator(best_diffs)
+                disc_prob = disc_prob.squeeze(-1)
+            else:
+                disc_prob = None
         
         return {
             "similarity_matrix": similarity_matrix,
@@ -296,6 +314,11 @@ class TRX(nn.Module):
         """
         similarity_matrix = kwargs["similarity_matrix"]
         target_labels = kwargs["target_labels"]
+        
+        # Handle the case where similarity_matrix has extra dimensions from split_first_dim_linear
+        if similarity_matrix.dim() == 3 and similarity_matrix.shape[0] == 1:
+            # Remove the first dimension if it's 1 (from NUM_SAMPLES=1)
+            similarity_matrix = similarity_matrix.squeeze(0)
         
         # Cross-entropy loss on similarity matrix
         known_indices = target_labels != -1
@@ -317,3 +340,13 @@ class TRX(nn.Module):
         Get debug data for logging
         """
         return {}
+
+    def distribute_model(self):
+        """
+        Distributes the CNNs over multiple GPUs.
+        """
+        if hasattr(self.args, 'num_gpus') and self.args.num_gpus > 1:
+            self.resnet.cuda(0)
+            self.resnet = torch.nn.DataParallel(self.resnet, device_ids=[i for i in range(0, self.args.num_gpus)])
+
+            self.transformers.cuda(0)

@@ -30,13 +30,13 @@ class OpenSetLoss(torch.nn.Module):
                           "gc": self.gc_loss}
         self.os_loss = self.os_loss[os_loss]
 
-    def gc_loss(self, logits, targets, similarity_matrix, rescale_function=None):
+    def gc_loss(self, logits, targets, similarity_matrix):
         return {"os_loss": None}
 
-    def softmax_loss(self, logits, targets, similarity_matrix, rescale_function=None):
+    def softmax_loss(self, logits, targets, similarity_matrix):
         return {"os_loss": None}
 
-    def discriminator_loss(self, logits, targets, similarity_matrix, rescale_function=None):
+    def discriminator_loss(self, logits, targets, similarity_matrix):
         os_scores = logits["disc_prob"]
         pred = similarity_matrix.max(dim=-1)[1]
         correct = pred == targets
@@ -49,14 +49,14 @@ class OpenSetLoss(torch.nn.Module):
             all_indices = torch.cat((unknown_indices, correct_known_indices))
 
             os_labels = (targets[all_indices] != -1).float()
-            os_scores = os_scores[all_indices].squeeze(1)
+            os_scores = os_scores[all_indices]
             # os_labels = torch.ones_like(os_labels)  # TODO REMOVE DEBUG
             os_loss = torch.nn.functional.binary_cross_entropy(os_scores, os_labels)
         else:
             os_loss = None
         return {"os_loss": os_loss}
 
-    def eos_loss(self, logits, targets, similarity_matrix, rescale_function=None):
+    def eos_loss(self, logits, targets, similarity_matrix):
         """
         for known queries, it uses cross-entropy loss
         so here we define only the case for unknown queries
@@ -78,8 +78,8 @@ class OpenSetLoss(torch.nn.Module):
 
 
 
-    def loss(self, logits, targets, similarity_matrix, rescale_function):
-        return self.os_loss(logits, targets, similarity_matrix, rescale_function)
+    def loss(self, logits, targets, similarity_matrix):
+        return self.os_loss(logits, targets, similarity_matrix)
 
 
 class AverageMeter:

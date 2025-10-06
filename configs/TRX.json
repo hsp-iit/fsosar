@@ -1,5 +1,5 @@
 {
-    "backbone": "resnet50",
+    "backbone": "resnet18",
     "freeze_backbone": true,
     "trans_linear_out_dim": 1152,
     "temp_set": [2],
@@ -19,7 +19,6 @@
     "disc_weight": 10,
     "lr_1_shot": 0.001,
     "lr_5_shot": 0.001,
-    "eval_after_steps_UCF101": 500,
     "query_per_class": 1,
     "optimize_every": 16,
     "maximum_queries": 1000

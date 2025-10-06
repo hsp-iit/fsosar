@@ -14,7 +14,7 @@ contains_element() {
 }
 
 # Define valid models and datasets
-valid_models=("STRM" "SAFSAR" "D2ST")
+valid_models=("STRM" "SAFSAR" "D2ST" "OTAM")
 valid_datasets=("SSv2" "HMDB51" "UCF101" "NTURGBD120" "Diving48")
 valid_os_losses=("softmax" "eos" "discriminator" "gc")
 

@@ -15,7 +15,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 from utils import is_address_in_use
 import copy
-from models import SAFSAR, STRM
+from models import SAFSAR, STRM, TRX, OTAM
 from models.d2st import D2ST
 from utils import visual_debug, set_seeds, save_confusion_matrix, save_confidence_scores
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
@@ -23,7 +23,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
-    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR", "D2ST"], help='Model name')
+    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR", "D2ST", "TRX", "OTAM"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving48"], help='Data name')
     parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
@@ -82,7 +82,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             lr = 4e-6
             disc_weight = 1000
     elif model_name == "D2ST":
-        # D2ST uses Adam optimizer with higher learning rates
+        # D2ST learning rate settings for different shots and datasets
         if config["shot"] == 1:
             if data_name in ["NTURGBD120"]:
                 lr = 0.001
@@ -93,6 +93,22 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             disc_weight = 10
         elif config["shot"] == 5:
             lr = 0.002
+            disc_weight = 10
+    elif model_name == "TRX":
+        # TRX learning rate settings for different shots
+        if config["shot"] == 1:
+            lr = 0.001
+            disc_weight = 10
+        elif config["shot"] == 5:
+            lr = 0.001
+            disc_weight = 10
+    elif model_name == "OTAM":
+        # OTAM learning rate settings for different shots
+        if config["shot"] == 1:
+            lr = 0.001
+            disc_weight = 10
+        elif config["shot"] == 5:
+            lr = 0.001
             disc_weight = 10
 
         
@@ -125,6 +141,10 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         model = STRM(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     elif model_name == "D2ST":
         model = D2ST(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    elif model_name == "TRX":
+        model = TRX(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
+    elif model_name == "OTAM":
+        model = OTAM(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     else:
         raise ValueError(f"Unknown model: {model_name}")
     
@@ -168,21 +188,34 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     # Initialize wandb
     if log_wandb and rank==0:
         wandb.init(project="fsosar", config=config, name=f"{config['host']}_{checkpoint_path}")
-        # wandb.watch(model, log="all")
+        # wandb.watch(model, log="all")  This takes too much memory
 
-    # Define optimizer and scheduler depe/home/sberti/fsosar/checkpoints/sasfar_softmax_STEPS_36000_ACC_0.7409_os_acc_mss_0.6405.ptnding on the model
+    # Define optimizer and scheduler based on config
     model_param = filter(lambda p: p.requires_grad, model.parameters())
-    if model_name == "SAFSAR":
+    
+    # Get optimizer settings from config - fail fast if missing required values
+    optimizer_type = config["optimizer"].lower()
+    scheduler_type = config["scheduler"]
+    momentum = config["momentum"] if optimizer_type == "sgd" else None
+    weight_decay = config["weight_decay"] if optimizer_type == "sgd" else None
+    scheduler_milestones = config["scheduler_milestones"] if scheduler_type == "multistep" else None
+    scheduler_gamma = config["scheduler_gamma"] if scheduler_type == "multistep" else None
+    
+    # Create optimizer based on config
+    if optimizer_type == "adam":
         optimizer = torch.optim.Adam(model_param, lr=lr)
-        scheduler = None
-    elif model_name == "STRM":
-        optimizer = torch.optim.SGD(model_param, lr=lr)
-        scheduler = MultiStepLR(optimizer, milestones=[1000000], gamma=0.1)
-    elif model_name == "D2ST":
-        optimizer = torch.optim.Adam(model_param, lr=lr)
+    elif optimizer_type == "sgd":
+        optimizer = torch.optim.SGD(model_param, lr=lr, momentum=momentum, weight_decay=weight_decay)
+    else:
+        raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
+    
+    # Create scheduler based on config
+    if scheduler_type == "multistep":
+        scheduler = MultiStepLR(optimizer, milestones=scheduler_milestones, gamma=scheduler_gamma)
+    elif scheduler_type is None:
         scheduler = None
     else:
-        raise Exception("Wrong model name")
+        raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
 
     # Loop variables
     train_meter = AverageMeter("train/")
@@ -323,6 +356,10 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 elif model_name in ["SAFSAR", "D2ST"]:
                     scaled_similarity_matrix = (similarity_matrix + 1)/2
                     # acc_target = true_target_labels
+                elif model_name in ["TRX", "OTAM"]:
+                    # TRX and OTAM similarity matrices are already in logit space, apply softmax for scaling
+                    scaled_similarity_matrix = torch.nn.functional.softmax(similarity_matrix, dim=-1)
+                    # acc_target = all_labels
                 if os_loss == "gc":
                     os_target = all_labels!=(config["way"]-1)
                 else:

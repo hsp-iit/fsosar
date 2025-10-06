@@ -1,7 +1,14 @@
-
 {
-    "trans_linear_in_dim": 2048,
+    "backbone": "resnet50",
+    "freeze_backbone": true,
     "trans_linear_out_dim": 1152,
+    "temp_set": [2],
+    "trans_dropout": 0.1,
+    "use_l2_loss": false,
+    "dp": false,
+    "save_features": false,
+    "ddp": false,
+    "shot": 5,
     "lr": 0.001,
     "optimizer": "sgd",
     "scheduler": "multistep",
@@ -10,15 +17,7 @@
     "scheduler_milestones": [1000000],
     "scheduler_gamma": 0.1,
     "disc_weight": 10,
-    "method": "resnet50", 
-    "trans_dropout": 0.1,
-    "temp_set": [2],
-    "query_per_class": 4,
+    "query_per_class": 1,
     "optimize_every": 16,
-    "maximum_queries": 1000000,
-    "use_cosine_sim": false,
-    "num_workers": 10,
-    "ddp": false,
-    "dp": true,
-    "shot": 5
+    "maximum_queries": 1000
 }

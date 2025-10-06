@@ -458,6 +458,8 @@ def save_confidence_scores(similarity_matrix, target_labels, model_name, dataset
             confidence_scores = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
         elif model_name in ["SAFSAR", "D2ST"]:
             confidence_scores = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
+        elif model_name in ["TRX", "OTAM"]:
+            confidence_scores = torch.nn.functional.softmax(similarity_matrix, dim=-1).max(dim=-1)[0].detach().cpu().numpy()
     elif os_loss_name == "discriminator" and logits is not None:
         # For explicit discriminator method
         disc_prob = logits["disc_prob"]
@@ -577,6 +579,8 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
             os_prob = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
         elif model_name in ["SAFSAR", "D2ST"]:
             os_prob = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
+        elif model_name in ["TRX", "OTAM"]:
+            os_prob = torch.nn.functional.softmax(similarity_matrix, dim=-1).max(dim=-1)[0].detach().cpu().numpy()
     elif os_loss_name == "discriminator" and logits is not None:
         # For explicit discriminator method
         os_prob = logits.get("disc_prob", None)

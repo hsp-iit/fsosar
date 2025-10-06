@@ -1,0 +1,21 @@
+{
+    "backbone": "resnet18",
+    "freeze_backbone": true,
+    "otam_lambda": 0.1,
+    "use_l2_loss": false,
+    "dp": false,
+    "save_features": false,
+    "ddp": false,
+    "query_per_class": 1,
+    "optimize_every": 1,
+    "maximum_queries": 1000,
+    "shot": 5,
+    "lr": 0.001,
+    "optimizer": "sgd",
+    "scheduler": "multistep",
+    "momentum": 0.9,
+    "weight_decay": 1e-4,
+    "scheduler_milestones": [1000000],
+    "scheduler_gamma": 0.1,
+    "disc_weight": 10
+}

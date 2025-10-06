@@ -86,6 +86,9 @@ class VideoDataset(torch.utils.data.Dataset):
             self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
             self.transform["train"] = self.custom_transform
             self.transform["test"] = self.custom_transform
+        elif preprocessing in ["TRX", "OTAM"]:
+            # TRX and OTAM use standard ResNet preprocessing (standard transforms are already set)
+            pass
 
 
         # Get complex names if they exists
@@ -193,7 +196,7 @@ class VideoDataset(torch.utils.data.Dataset):
                 video_folders = os.listdir(os.path.join(self.data_dir, class_folder))
                 video_folders.sort()
                 if self.debug_loader:
-                    video_folders = video_folders[0:2]
+                    video_folders = video_folders[0:self.way+1]
                 for video_folder in video_folders:
                     c = self.get_train_or_test_db(video_folder)
                     if c == None:

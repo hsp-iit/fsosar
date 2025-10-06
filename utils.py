@@ -236,7 +236,7 @@ class BinaryClassificationModelSTRM(nn.Module):
         batch_size, num_frames, feat_dim = x.shape
         
         # Process each frame independently
-        x = x.view(-1, feat_dim)  # Flatten to (40*28, 1152)
+        x = x.reshape(-1, feat_dim)  # Flatten to (40*28, 1152) - use reshape instead of view for non-contiguous tensors
         
         x = self.drop1(self.act1(self.bn1(self.fc1(x))))
         x = self.drop2(self.act2(self.bn2(self.fc2(x))))

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
-from utils import compute_accuracy, BinaryClassificationModelSTRM
+from utils import compute_accuracy, BinaryClassificationModelSAFSAR
 from einops import rearrange
 import copy
 
@@ -93,9 +93,10 @@ class OTAM(nn.Module):
         self.disc = disc
         self.gc = gc
         if disc:
-            self.discriminator = BinaryClassificationModelSTRM(self.feature_dim).cuda()
+            self.discriminator = BinaryClassificationModelSAFSAR(self.feature_dim).cuda()
         if gc:
-            self.garbage_prototype = nn.Parameter(torch.randn((1, self.feature_dim))).cuda()
+            self.garbage_prototype = nn.Parameter(torch.zeros((self.seq_len, self.feature_dim))).cuda()
+            self.garbage_initialized = False
             
         # Framework compatibility
         self.debug_samples_counter = 0
@@ -134,6 +135,19 @@ class OTAM(nn.Module):
         """Set model to evaluation mode"""
         self.eval()
 
+    def initialize_garbage_prototype(self, support_features):
+        """Initialize garbage prototype based on real feature statistics"""
+        with torch.no_grad():
+            # Compute statistics from real support features
+            feature_mean = support_features.mean(dim=(0, 1))  # Mean across batch and time
+            feature_std = support_features.std(dim=(0, 1))    # Std across batch and time
+            
+            # Initialize garbage prototype with same statistics
+            self.garbage_prototype.data = torch.normal(
+                mean=feature_mean.unsqueeze(0).expand(self.seq_len, -1),
+                std=feature_std.unsqueeze(0).expand(self.seq_len, -1)
+            )
+
     def forward(self, support_set, support_labels, target_set, batch_class_list=None, precomputed_context_features=None):
         """
         Forward pass adapted for FSOSAR framework
@@ -147,6 +161,16 @@ class OTAM(nn.Module):
         
         # Extract features
         support_features, target_features = self.get_feats(support_images, target_images)
+
+        # Initialize garbage prototype on first forward pass
+        if self.gc and not self.garbage_initialized:
+            self.initialize_garbage_prototype(support_features)
+            self.garbage_initialized = True
+
+        if self.gc:
+            support_features = torch.cat([support_features, self.garbage_prototype.unsqueeze(0)], dim=0)
+            support_labels = torch.cat([support_labels, torch.tensor([self.way-1], device=support_labels.device)], dim=0)
+
         
         unique_labels = torch.unique(support_labels)
         n_queries = target_features.shape[0]
@@ -197,12 +221,6 @@ class OTAM(nn.Module):
                 os_loss_name=self.os_loss_name
             )
         
-        # Add garbage class for GC
-        if self.gc:
-            n_queries = similarity_matrix.shape[0]
-            garbage_scores = torch.zeros(n_queries, 1, device=similarity_matrix.device)
-            similarity_matrix = torch.cat([similarity_matrix, garbage_scores], dim=1)
-        
         # Discriminator for open-set detection
         disc_prob = None
         if self.disc:
@@ -221,7 +239,7 @@ class OTAM(nn.Module):
             # Compute differences for discriminator
             best_prototypes = support_prototypes[predictions]
             differences = query_features_flat - best_prototypes
-            disc_prob = self.discriminator(differences.unsqueeze(1).expand(-1, self.seq_len, -1))
+            disc_prob = self.discriminator(differences)
         
         return {
             "similarity_matrix": similarity_matrix,

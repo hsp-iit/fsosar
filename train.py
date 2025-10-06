@@ -50,68 +50,43 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Define training parameters
-    lr = config["lr"]
+    lr = config["lr"]  # Default learning rate from config
     log_train_after_steps = config["log_train_after_steps"]
     eval_after_steps = config["eval_after_steps"]
     log_wandb = config["log_wandb"]
-    if model_name == "STRM":
-        if data_name in ["SSv2", "NTURGBD120", "Diving48"]:
-            if os_loss == "gc":
-                lr = 0.0001
-            else:
-                lr = 0.001
-            disc_weight = 10
-        elif data_name in ["HMDB51", "UCF101"]:
-            lr = 0.0001
-            disc_weight = 10
-        elif data_name == "Diving48":
-            lr = 0.0001
-            disc_weight = 10
-    elif model_name == "SAFSAR":
-        if config["shot"] == 1:
-            if data_name in ["NTURGBD120"]:
-                lr = 4e-7
-            elif data_name in ["SSv2", "Diving48"]:
-                lr = 4e-6
-            elif data_name in ["UCF101"]:
-                lr = 1e-8
-            elif data_name in ["HMDB51"]:
-                lr = 1e-7
-            disc_weight = 100
-        elif config["shot"] == 5:
-            lr = 4e-6
-            disc_weight = 1000
-    elif model_name == "D2ST":
-        # D2ST learning rate settings for different shots and datasets
-        if config["shot"] == 1:
-            if data_name in ["NTURGBD120"]:
-                lr = 0.001
-            elif data_name in ["SSv2", "Diving48"]:
-                lr = 0.002
-            elif data_name in ["UCF101", "HMDB51"]:
-                lr = 0.001
-            disc_weight = 10
-        elif config["shot"] == 5:
-            lr = 0.002
-            disc_weight = 10
-    elif model_name == "TRX":
-        # TRX learning rate settings for different shots
-        if config["shot"] == 1:
-            lr = 0.001
-            disc_weight = 10
-        elif config["shot"] == 5:
-            lr = 0.001
-            disc_weight = 10
-    elif model_name == "OTAM":
-        # OTAM learning rate settings for different shots
-        if config["shot"] == 1:
-            lr = 0.001
-            disc_weight = 10
-        elif config["shot"] == 5:
-            lr = 0.001
-            disc_weight = 10
+    
+    # Get dataset-specific eval_after_steps if specified (highest priority)
+    eval_after_steps_key = f"eval_after_steps_{data_name}"
+    if eval_after_steps_key in config:
+        eval_after_steps = config[eval_after_steps_key]
+        config["eval_after_steps"] = eval_after_steps
+    
+    # Get dataset and shot-specific learning rate and disc_weight from config
+    shot = config["shot"]
+    
+    # Try to get shot-specific learning rate first, then dataset-specific, then default
+    lr_key_shot_dataset = f"lr_{shot}_shot_{data_name}"
+    lr_key_shot = f"lr_{shot}_shot"
+    lr_key_dataset = f"lr_{data_name}"
+    
+    if lr_key_shot_dataset in config:
+        lr = config[lr_key_shot_dataset]
+    elif lr_key_shot in config:
+        lr = config[lr_key_shot]
+    elif lr_key_dataset in config:
+        lr = config[lr_key_dataset]
+        # Special case for STRM with GC loss override
+        if model_name == "STRM" and os_loss == "gc" and "lr_gc_override" in config:
+            lr = config["lr_gc_override"]
+    
+    # Get disc_weight with shot-specific fallback
+    disc_weight_key = f"disc_weight_{shot}_shot"
+    if disc_weight_key in config:
+        disc_weight = config[disc_weight_key]
+    else:
+        disc_weight = config["disc_weight"]
 
-        
+    config["disc_weight"] = disc_weight
     config["eval_after_steps"] = eval_after_steps
     config["lr"] = lr
 
@@ -289,7 +264,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 if os_loss == "gc":
                     if model_name == "SAFSAR":
                         rescale_function = lambda x: (x+1)/2
-                    if model_name == "STRM":
+                    if model_name in ["STRM", "TRX", "OTAM"]:
                         rescale_function = torch.exp
                     if model_name == "D2ST":
                         rescale_function = lambda x: (x+1)/2

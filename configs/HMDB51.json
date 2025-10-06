@@ -3,5 +3,6 @@
     "traintestlist": "splits/hmdb_ARN",
     "img_size": 224,
     "split": 3,
-    "n_train_classes": 64
+    "n_train_classes": 64,
+    "eval_after_steps": 10000
 }

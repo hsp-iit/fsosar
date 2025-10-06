@@ -99,6 +99,7 @@ class TemporalCrossTransformer(nn.Module):
 
         # init tensor to hold distances between every support tuple and every target tuple
         all_distances_tensor = torch.zeros(n_queries, self.args["way"], device=queries.device)
+        all_prototypes = torch.zeros(n_queries, self.args["way"], self.tuples_len, self.args["trans_linear_out_dim"], device=queries.device)
 
         for label_idx, c in enumerate(unique_labels):
         
@@ -130,8 +131,9 @@ class TemporalCrossTransformer(nn.Module):
             distance = distance * -1
             c_idx = c.long()
             all_distances_tensor[:,c_idx] = distance
+            all_prototypes[:,c_idx] = diff  # Store the differences for discriminator
         
-        return all_distances_tensor
+        return all_distances_tensor, all_prototypes
 
 
 class TRX(nn.Module):
@@ -181,10 +183,10 @@ class TRX(nn.Module):
         self.disc = disc
         self.gc = gc
         if disc:
-            feature_dim = config["trans_linear_in_dim"]
+            feature_dim = config["trans_linear_out_dim"]  # Use output dim since prototypes are in transformed space
             self.discriminator = BinaryClassificationModelSTRM(feature_dim).cuda()
         if gc:
-            self.garbage_prototype = nn.Parameter(torch.randn((1, config["trans_linear_out_dim"]))).cuda()
+            self.garbage_support = nn.Parameter(torch.randn(1, self.seq_len, config["trans_linear_in_dim"]), requires_grad=True).cuda()
             
         # Framework compatibility
         self.debug_samples_counter = 0
@@ -236,11 +238,19 @@ class TRX(nn.Module):
         
         # Extract features
         support_features, target_features = self.get_feats(support_images, target_images)
+
+        if self.gc:
+            support_labels = torch.cat([support_labels, torch.tensor([self.way-1], device=support_labels.device)], dim=0)
+            support_features = torch.cat([support_features, self.garbage_support], dim=0)
         
         # Apply transformers
-        all_logits = [t(support_features, support_labels, target_features) for t in self.transformers]
+        all_results = [t(support_features, support_labels, target_features) for t in self.transformers]
+        all_logits = [result[0] for result in all_results]
+        all_prototypes = [result[1] for result in all_results]
+        
         all_logits = torch.stack(all_logits, dim=-1)
         similarity_matrix = torch.mean(all_logits, dim=[-1])
+        all_prototypes = torch.stack(all_prototypes)[0]
         
         # Save features for analysis
         if self.save_features and batch_class_list is not None:
@@ -263,30 +273,17 @@ class TRX(nn.Module):
             )
         
         # Add garbage class for GC
-        if self.gc:
-            n_queries = similarity_matrix.shape[0]
-            garbage_scores = torch.zeros(n_queries, 1, device=similarity_matrix.device)
-            similarity_matrix = torch.cat([similarity_matrix, garbage_scores], dim=1)
+        # if self.gc:
+        #     n_queries = similarity_matrix.shape[0]
+        #     garbage_scores = torch.zeros(n_queries, 1, device=similarity_matrix.device)
+        #     similarity_matrix = torch.cat([similarity_matrix, garbage_scores], dim=1)
         
         # Discriminator for open-set detection
         disc_prob = None
         if self.disc:
-            # Use query features for discriminator
-            query_features_flat = target_features.mean(dim=1)  # Average over time
             predictions = torch.argmax(similarity_matrix, dim=-1)
-            
-            # Get prototype features for best matching class
-            support_prototypes = []
-            for c in support_labels.unique():
-                class_mask = support_labels == c
-                prototype = support_features[class_mask].mean(dim=0).mean(dim=0)
-                support_prototypes.append(prototype)
-            support_prototypes = torch.stack(support_prototypes)
-            
-            # Compute differences for discriminator
-            best_prototypes = support_prototypes[predictions]
-            differences = query_features_flat - best_prototypes
-            disc_prob = self.discriminator(differences.unsqueeze(1).expand(-1, self.seq_len, -1))
+            best_diffs = all_prototypes[torch.arange(all_prototypes.shape[0]), predictions]
+            disc_prob = self.discriminator(best_diffs)
         
         return {
             "similarity_matrix": similarity_matrix,

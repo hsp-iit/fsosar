@@ -3,5 +3,6 @@
     "traintestlist": "splits/ssv2_OTAM",
     "img_size": 224,
     "split": 7,
-    "n_train_classes": 64
+    "n_train_classes": 64,
+    "eval_after_steps": 35000
 }

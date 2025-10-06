@@ -14,11 +14,21 @@
     "optimizer": "adam",
     "scheduler": null,
     "disc_weight": 1000,
+    "lr_1_shot_NTURGBD120": 4e-7,
+    "lr_1_shot_SSv2": 4e-6,
+    "lr_1_shot_Diving48": 4e-6,
+    "lr_1_shot_UCF101": 1e-8,
+    "lr_1_shot_HMDB51": 1e-7,
+    "lr_5_shot": 4e-6,
+    "disc_weight_1_shot": 100,
+    "disc_weight_5_shot": 1000,
     "query_per_class": 1,
     "optimize_every": 1,
     "maximum_queries": 5,
     "num_workers": 4,
     "ddp": false,
     "dp": true,
-    "shot": 5
+    "shot": 5,
+    "eval_after_steps_HMDB51": 1000,
+    "eval_after_steps_UCF101": 1000
 }

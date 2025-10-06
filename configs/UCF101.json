@@ -3,5 +3,6 @@
     "traintestlist": "splits/ucf_ARN",
     "img_size": 224,
     "split": 3,
-    "n_train_classes": 101
+    "n_train_classes": 101,
+    "eval_after_steps": 10000
 }

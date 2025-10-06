@@ -3,5 +3,6 @@
     "traintestlist": "splits/nturgbd",
     "img_size": 224,
     "split": 7,
-    "n_train_classes": 82
+    "n_train_classes": 82,
+    "eval_after_steps": 20000
 }

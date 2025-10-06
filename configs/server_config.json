@@ -6,7 +6,6 @@
     "visual_debug": false,
     "checkpoint_path": "",
     "exit_after_eval": true,
-    "eval_after_steps": 70000,
     "way": 5,
     "seq_len": 8,
     "debug_loader": false,

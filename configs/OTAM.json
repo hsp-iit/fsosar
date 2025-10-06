@@ -17,5 +17,7 @@
     "weight_decay": 1e-4,
     "scheduler_milestones": [1000000],
     "scheduler_gamma": 0.1,
-    "disc_weight": 10
+    "disc_weight": 10,
+    "lr_1_shot": 0.001,
+    "lr_5_shot": 0.001
 }

@@ -56,6 +56,7 @@ class SAFSAR(nn.Module):
 
         if gc:
             self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
+            self.garbage_initialized = False
         # if I initialize it everytime, I dont break the pytorch seed with softmax
         self.discriminator = None
         if disc:
@@ -134,6 +135,9 @@ class SAFSAR(nn.Module):
 
         # Add unknown class if GC
         if self.gc:
+            if not self.garbage_initialized:
+                self.garbage_prototype = self.initialize_garbage_prototype(self.garbage_prototype, support_mm_features)
+                self.garbage_initialized = True
             support_mm_features = torch.cat((support_mm_features, self.garbage_prototype), dim=0)
 
         # Generate query prototypes

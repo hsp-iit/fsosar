@@ -249,6 +249,24 @@ class BinaryClassificationModelSTRM(nn.Module):
         x = x.view(batch_size, num_frames * 64)  # (40, 28*64)
         x = self.fc5(x)
         return self.sigmoid(x)
+    
+
+def initialize_garbage_prototype(self, garbage_prototype, support_features):
+    """Initialize garbage prototype based on real feature statistics"""
+    with torch.no_grad():
+        # Compute statistics from real support features
+        feature_mean = support_features.mean()  # Mean across batch and time
+        feature_std = support_features.std()    # Std across batch and time
+
+        # Initialize garbage prototype with random values using computed statistics
+        # Create a tensor of the same shape as garbage_prototype filled with random values
+        garbage_prototype.data = torch.normal(
+            mean=feature_mean.item(),
+            std=feature_std.item(),
+            size=garbage_prototype.shape,
+            device=garbage_prototype.device
+        )
+    return garbage_prototype
 
 
 class DataArgs:

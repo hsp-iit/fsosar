@@ -133,28 +133,34 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         model_attributes = model.module
     else:
         model_attributes = model
-    model_attributes.set_train()
-    model.train()
+
     if config["eval_only"]:
-        import collections
-        old_weights = torch.load(config["checkpoint_path"])
-        new_weights = collections.OrderedDict()
-        old_weights_set = set()
-        model_weights_set = set()
-        for k_, v_ in old_weights.items():
-            for k, v in model.named_parameters():
-                if k_ in k or k in k_:
-                    new_weights[k] = copy.deepcopy(v_)
-                    old_weights_set.add(k_)
-                    model_weights_set.add(k)
-        # to ensure that we used all weights of checkpoints and of the model
-        if(len(old_weights_set) != len(model_weights_set)):
-            print("Not corresponding weights:", old_weights_set.symmetric_difference(model_weights_set))
-        if model_name == "STRM":
-            model.load_state_dict(old_weights, strict=True)
+        if config["checkpoint_path"] != "":
+            import collections
+            old_weights = torch.load(config["checkpoint_path"])
+            new_weights = collections.OrderedDict()
+            old_weights_set = set()
+            model_weights_set = set()
+            for k_, v_ in old_weights.items():
+                for k, v in model.named_parameters():
+                    if k_ in k or k in k_:
+                        new_weights[k] = copy.deepcopy(v_)
+                        old_weights_set.add(k_)
+                        model_weights_set.add(k)
+            # to ensure that we used all weights of checkpoints and of the model
+            if(len(old_weights_set) != len(model_weights_set)):
+                print("Not corresponding weights:", old_weights_set.symmetric_difference(model_weights_set))
+            if model_name == "STRM":
+                model.load_state_dict(old_weights, strict=True)
+            else:
+                model.load_state_dict(new_weights, strict=True)
         else:
-            model.load_state_dict(new_weights, strict=True)
+            print("Doing evaluation with a random initialized model!")
         model_attributes.set_eval()
+        model.eval()
+    else:
+        model_attributes.set_train()
+        model.train()
 
     # Set seeds AFTER model initialization to ensure reproducible data loading
     # regardless of model architecture differences (softmax vs discriminator)

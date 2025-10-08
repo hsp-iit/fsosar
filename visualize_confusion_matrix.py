@@ -34,7 +34,7 @@ def load_confusion_matrix(model, dataset, os_loss):
     return cm_data, cm_path
 
 
-def plot_confusion_matrix(cm_data, save_path=None, show=True):
+def plot_confusion_matrix(cm_data, save_path=None, show=False):
     """
     Plot confusion matrix with enhanced visualization
     

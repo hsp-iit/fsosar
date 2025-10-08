@@ -18,6 +18,7 @@ import copy
 from models import SAFSAR, STRM, TRX, OTAM
 from models.d2st import D2ST
 from utils import visual_debug, set_seeds, save_confusion_matrix, save_confidence_scores
+import gc
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 
@@ -444,21 +445,15 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 else:
                     break  # Break out of the for loop to restart with the new dataloader
 
-            # Explicitly delete tensors in training mode to prevent memory accumulation
-            if training and not config["eval_only"]:
-                # Delete all the large tensors created in the loop and moved to CUDA
-                del support_set, support_labels, batch_class_list
-                del target_set, target_labels, unknown_set, unknown_labels
-                del all_images, all_labels
+            # Manual garbage collection (needed for some PyTorch versions)
+            del support_set, support_labels, batch_class_list
+            del target_set, target_labels, unknown_set, unknown_labels
+            del all_images, all_labels
+            del logits, similarity_matrix, known_losses, unknown_losses
+            gc.collect()
+            torch.cuda.empty_cache()
 
-                # Delete output and loss tensors
-                del logits, similarity_matrix, all_loss, known_losses, unknown_losses
-
-                # Run garbage collector and clear CUDA cache
-                import gc
-                gc.collect()
-                torch.cuda.empty_cache()
-
+            # Progress bar
             if rank == 0:
                 progress_bar.update(1)
             step += 1

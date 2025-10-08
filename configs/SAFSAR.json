@@ -8,7 +8,7 @@
     "freeze_whole_backbone": false,
     "intermediate_size": 3072,
     "num_layers_task": 1,
-    "use_textual_embedding": false,
+    "use_textual_embedding": true,
     "alpha": 0.1,
     "lr": 4e-6,
     "optimizer": "adam",

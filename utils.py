@@ -251,7 +251,7 @@ class BinaryClassificationModelSTRM(nn.Module):
         return self.sigmoid(x)
     
 
-def initialize_garbage_prototype(self, garbage_prototype, support_features):
+def initialize_garbage_prototype(garbage_prototype, support_features):
     """Initialize garbage prototype based on real feature statistics"""
     with torch.no_grad():
         # Compute statistics from real support features

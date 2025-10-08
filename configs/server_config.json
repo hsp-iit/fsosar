@@ -1,11 +1,12 @@
 {
     "log_train_after_steps": 10,
-    "log_wandb": true,
+    "log_wandb": false,
     "eval_only": false,
-    "n_eval_steps": 1000,
+    "n_eval_steps": 10,
+    "eval_after_steps": 1000,
     "visual_debug": false,
     "checkpoint_path": "",
-    "exit_after_eval": true,
+    "exit_after_eval": false,
     "way": 5,
     "seq_len": 8,
     "debug_loader": false,
@@ -13,5 +14,6 @@
     "save_features": false,
     "compute_confusion_matrix": false,
     "save_confidence_scores": false,
-    "max_steps": 100000000
+    "max_steps": 100000000,
+    "num_workers": 4
 }

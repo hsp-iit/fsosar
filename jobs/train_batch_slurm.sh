@@ -4,7 +4,7 @@
 
 # Initialize conda
 source /home/sberti/.bashrc
-conda activate fsosar
+conda activate fsosar_gnode
 
 # Change to the fsosar directory
 cd /fastwork/sberti/fsosar

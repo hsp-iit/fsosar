@@ -387,7 +387,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                         print(train_results)
 
             # Enable evaluation
-            if (training and ((step % eval_after_steps == 0 and step > 0)) or config["eval_only"]) or (total_step==0 and test_eval):
+            # wither we are training and its time for evaluation or we are in eval only mode
+            if (training and ((step % eval_after_steps == 0 and step>0)) or config["eval_only"]) or total_step==0:
                 if config["ddp"]:
                     dist.barrier()
                 if rank == 0:
@@ -407,7 +408,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 break  # Break out of the for loop to restart with the new dataloader
 
             # Disable evaluation
-            if (not training and step == config["n_eval_steps"]) or (total_step==5 and test_eval):
+            if (not training and step == config["n_eval_steps"]):
                 if config["ddp"]:
                     dist.barrier()
                 model_attributes.set_train()
@@ -442,6 +443,21 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                     exit(0)
                 else:
                     break  # Break out of the for loop to restart with the new dataloader
+
+            # Explicitly delete tensors in training mode to prevent memory accumulation
+            if training and not config["eval_only"]:
+                # Delete all the large tensors created in the loop and moved to CUDA
+                del support_set, support_labels, batch_class_list
+                del target_set, target_labels, unknown_set, unknown_labels
+                del all_images, all_labels
+
+                # Delete output and loss tensors
+                del logits, similarity_matrix, all_loss, known_losses, unknown_losses
+
+                # Run garbage collector and clear CUDA cache
+                import gc
+                gc.collect()
+                torch.cuda.empty_cache()
 
             if rank == 0:
                 progress_bar.update(1)

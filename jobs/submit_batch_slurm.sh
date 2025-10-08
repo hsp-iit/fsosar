@@ -14,7 +14,7 @@ contains_element() {
 }
 
 # Define valid models and datasets
-valid_models=("STRM" "SAFSAR" "D2ST" "OTAM")
+valid_models=("STRM" "SAFSAR" "D2ST" "OTAM" "TRX")
 valid_datasets=("SSv2" "HMDB51" "UCF101" "NTURGBD120" "Diving48")
 valid_os_losses=("softmax" "eos" "discriminator" "gc")
 
@@ -23,26 +23,26 @@ reservation_name="sberti_14"  # sberti_14 Set to "" to disable reservation usage
 qos_name="resv1"              # resv1 Set to "" to disable qos usage
 
 # Job batching configuration
-jobs_with_reservation=16    # Number of jobs to submit with reservation
-jobs_without_reservation=6  # Number of jobs to submit without reservation
+jobs_with_reservation=0    # Number of jobs to submit with reservation
+jobs_without_reservation=60  # Number of jobs to submit without reservation
 
 # Define models to test (can be customized)
 models=("SAFSAR")
 
 # Define datasets to test (can be customized)
-datasets=("UCF101" "NTURGBD120")
+datasets=("HMDB51" "UCF101")
 
 # Define OS losses to test (can be customized)
-os_losses=("gc")
+os_losses=("softmax" "gc")
 
 # Base job script file name (SLURM version)
 job_script="train_batch_slurm.sh"
 
 # SLURM job configuration (can be customized)
 partition="gpuv"
-time_limit="18:00:00"
+time_limit="24:00:00"
 cpus_per_task=4
-gpus=1
+gpus=4
 memory="32G"
 
 # Parse command line arguments

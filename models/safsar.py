@@ -7,6 +7,7 @@ import wandb
 import numpy as np
 from utils import BinaryClassificationModelSAFSAR
 import copy
+from utils import initialize_garbage_prototype
 
 class SAFSAR(nn.Module):
     def __init__(self, config, disc=None, gc=None, dp=None):
@@ -40,11 +41,13 @@ class SAFSAR(nn.Module):
         self.cosine_similarity = nn.CosineSimilarity(dim=-1)
         self.softmax = nn.Softmax(dim=-1)
 
-        self.use_l2_loss = config["use_l2_loss"]
-        if self.use_l2_loss:
-            self.global_classification_layer = nn.Linear(config["hidden_size"], config["n_train_classes"])
-
         self.use_textual_embedding = config["use_textual_embedding"]
+        if self.use_textual_embedding:
+            self.global_classification_layer = nn.Linear(config["hidden_size"], config["n_train_classes"])
+            self.use_l2_loss = True
+        else:
+            self.use_l2_loss = False
+
         self.class_name_embeddings = self.get_textual_embeddings(config["classes_names"])
         self.alpha = config["alpha"]
         self.debug_samples_counter = 0
@@ -66,7 +69,8 @@ class SAFSAR(nn.Module):
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
-        self.use_l2_loss = True
+        if self.use_textual_embedding:
+            self.use_l2_loss = True
 
     def set_eval(self):
         # During training, l2 loss is useless
@@ -91,8 +95,10 @@ class SAFSAR(nn.Module):
             with torch.no_grad():
                 outputs = bert_model(**inputs)
             class_name_embeddings.append(outputs.last_hidden_state.squeeze(0))
-        bert_model = None
-        tokenizer = None
+        # Properly delete and clear cache
+        del bert_model
+        del tokenizer
+        torch.cuda.empty_cache()
         return class_name_embeddings
 
     def forward(self, support_set, support_labels, target_set, batch_class_list=None, precomputed_context_features=None):
@@ -136,7 +142,7 @@ class SAFSAR(nn.Module):
         # Add unknown class if GC
         if self.gc:
             if not self.garbage_initialized:
-                self.garbage_prototype = self.initialize_garbage_prototype(self.garbage_prototype, support_mm_features)
+                self.garbage_prototype = initialize_garbage_prototype(self.garbage_prototype, support_mm_features)
                 self.garbage_initialized = True
             support_mm_features = torch.cat((support_mm_features, self.garbage_prototype), dim=0)
 

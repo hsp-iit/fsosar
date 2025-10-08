@@ -1,9 +1,9 @@
 {
     "log_train_after_steps": 10,
-    "log_wandb": false,
+    "log_wandb": true,
     "eval_only": false,
     "n_eval_steps": 1000,
-    "eval_after_steps": 10,
+    "eval_after_steps": 1000,
     "visual_debug": false,
     "checkpoint_path": "",
     "exit_after_eval": false,

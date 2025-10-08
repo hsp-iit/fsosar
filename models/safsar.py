@@ -15,8 +15,13 @@ class SAFSAR(nn.Module):
         self.processor = AutoImageProcessor.from_pretrained(config["processor_name"])
         self.model = AutoModelForVideoClassification.from_pretrained(config["mm_model_name"], output_hidden_states=True)
         # Freeze patch_embeddings
-        for param in self.model.videomae.embeddings.parameters():
-            param.requires_grad = False
+        if config["freeze_whole_backbone"]:
+            print("Freezing whole backbone!")
+            for param in self.model.videomae.parameters():
+                param.requires_grad = False
+        else:
+            for param in self.model.videomae.embeddings.parameters():
+                param.requires_grad = False
         # Distribute feature extractor for 5-shot training
         if dp:
             # Copy the weight of self.model.fc_norm such that we can optimize them

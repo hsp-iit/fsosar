@@ -5,6 +5,7 @@
     "hidden_size": 768,
     "num_layers_mm": 2,
     "num_heads": 8,
+    "freeze_whole_backbone": false,
     "intermediate_size": 3072,
     "num_layers_task": 1,
     "use_textual_embedding": false,

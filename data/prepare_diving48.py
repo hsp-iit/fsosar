@@ -47,11 +47,11 @@ def load_json(json_file):
     return data
 
 if __name__ == '__main__':
-    train_split = "/home/sberti_datasets/Diving48/Diving48_V2_train.json"
-    test_split = "/home/sberti_datasets/Diving48/Diving48_V2_test.json"
-    data_path = "/home/sberti_datasets/Diving48/rgb"
-    dataset_path = "/home/sberti_datasets/Diving48"
-    class_labels = "/home/sberti_datasets/Diving48/class_labels.json"
+    train_split = "/fastwork/sberti/Diving48/Diving48_V2_train.json"
+    test_split = "/fastwork/sberti/Diving48/Diving48_V2_test.json"
+    data_path = "/fastwork/sberti/Diving48/rgb"
+    dataset_path = "/fastwork/sberti/Diving48"
+    class_labels = "/fastwork/sberti/Diving48/class_labels.json"
 
     train_data = load_json(train_split)
     test_data = load_json(test_split)

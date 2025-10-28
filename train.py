@@ -213,6 +213,11 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     torch.set_grad_enabled(not config["eval_only"])
     training = not config["eval_only"]
 
+    # print config before training without long lists
+    for k, v in config.items():
+        if k not in ["classes_names", "train_unique_classes"]:
+            print(k, v)
+
     while True:
         # assert dataloader.dataset.train == training
         for elem in dataloader:
@@ -360,7 +365,7 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                         metrics = {"fs_acc": compute_accuracy(similarity_matrix[known_indices], all_labels[known_indices])}
                 else:  # explicit method
                     if os_loss == "discriminator":
-                        os_score = logits["disc_prob"]
+                        os_score = logits["disc_prob"].squeeze(1)
                     elif os_loss == "gc":
                         os_score = torch.nn.functional.softmax(similarity_matrix, dim=-1)[:, -1]
                         similarity_matrix = similarity_matrix[:, :-1]

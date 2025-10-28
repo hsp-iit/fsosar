@@ -51,6 +51,7 @@ class OpenSetLoss(torch.nn.Module):
             os_labels = (targets[all_indices] != -1).float()
             os_scores = os_scores[all_indices]
             # os_labels = torch.ones_like(os_labels)  # TODO REMOVE DEBUG
+            os_scores = os_scores.squeeze(-1)  # sometimes it remain an extra dimension
             os_loss = torch.nn.functional.binary_cross_entropy(os_scores, os_labels)
         else:
             os_loss = None

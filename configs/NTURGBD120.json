@@ -1,5 +1,5 @@
 {
-    "path": "NTU_dataset",
+    "path": "NTU_dataset/images",
     "traintestlist": "splits/nturgbd",
     "img_size": 224,
     "split": 7,

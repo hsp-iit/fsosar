@@ -71,6 +71,7 @@ class SAFSAR(nn.Module):
             self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
         self.gc = gc
         self.disc = disc
+        self.log_debug_data = config["log_debug_data"]
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
@@ -222,9 +223,12 @@ class SAFSAR(nn.Module):
         else:
             l2_loss = 0. # We need to return something
 
-        self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
-                           "true_target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None]),
-                           "similarity_matrix_mean": similarity_matrix.mean().item()}
+        if self.log_debug_data:
+            self.debug_data = {"similarity_matrix": wandb.Table(columns=list(range(self.way)), data=similarity_matrix.detach().cpu().numpy().tolist()),
+                            "true_target_labels": wandb.Table(columns=[0], data=target_labels.detach().cpu().numpy()[..., None]),
+                            "similarity_matrix_mean": similarity_matrix.mean().item()}
+        else:
+            self.debug_data = {}
         return {"l1_loss": l1_loss, "l2_loss": self.alpha*l2_loss}
 
     def get_debug_data(self):

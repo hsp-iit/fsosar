@@ -27,28 +27,12 @@ class SAFSAR(nn.Module):
         self.query_per_class = config["query_per_class"]
         self.query_per_class_test = config["query_per_class_test"]
         self.train_unique_classes = config["train_unique_classes"]
-        ### Added to change the concatenation of the skeleton features
-        self.skeleton_embed_size = config.get("skeleton_embed_size", 256)
-        self.hidden_size    = config["hidden_size"]
-        self.fused_size = self.hidden_size + self.skeleton_embed_size
-        self.text_proj = nn.Linear(768, self.fused_size)
 
-
-        ### In this case we do concatenation
-        # self.mm_fusion_module = self._build_transformer(config["hidden_size"],
-        #                                                 config["num_layers_mm"],
-        #                                                 config["num_heads"],
-        #                                                 config["intermediate_size"])  # We do not use batch here
-        # self.task_specific_learning_module = self._build_transformer(config["hidden_size"],
-        #                                                              config["num_layers_task"],
-        #                                                              config["num_heads"],
-        #                                                              config["intermediate_size"],
-        #                                                              batch_first=True)  # We pass batch as first dimension
-        self.mm_fusion_module = self._build_transformer(self.fused_size,
+        self.mm_fusion_module = self._build_transformer(config["hidden_size"],
                                                         config["num_layers_mm"],
                                                         config["num_heads"],
                                                         config["intermediate_size"])  # We do not use batch here
-        self.task_specific_learning_module = self._build_transformer(self.fused_size,
+        self.task_specific_learning_module = self._build_transformer(config["hidden_size"],
                                                                      config["num_layers_task"],
                                                                      config["num_heads"],
                                                                      config["intermediate_size"],
@@ -57,29 +41,25 @@ class SAFSAR(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
         ###
-        # === Skeleton fusion options === ]
+        # === Skeleton fusion options ===  [INSERIRE QUI]
         self.use_skeleton   = config.get("use_skeleton", True)          # abilita ramo skeleton
-        # self.skel_J         = config.get("skeleton_J", 30)              # joints
-        self.skel_J         = config.get("skeleton_J", 16)
-        # self.skel_J         = config.get("skeleton_J", 48)    
+        self.skel_J         = config.get("skeleton_J", 30)              # joints
         self.skel_C         = config.get("skeleton_C", 3)               # 3 per 3D
-                             # 768 per VMAE-base
-        
+        self.hidden_size    = config["hidden_size"]                     # 768 per VMAE-base
         skel_in = self.skel_J * self.skel_C
 
         # Encoder MLP per frame (J*C -> 768), poi pool temporale
         self.skeleton_mlp = nn.Sequential(
             nn.Linear(skel_in, config.get("skeleton_mlp_hidden", 512)),
             nn.GELU(),
-            nn.Linear(config.get("skeleton_mlp_hidden", 512), self.skeleton_embed_size),
+            nn.Linear(config.get("skeleton_mlp_hidden", 512), self.hidden_size),
         )
-        ### In this case we do concatenation
-        # # Proiezione di fusione (video 768 + skel 768 -> 768)
-        # self.fuse_linear = nn.Sequential(
-        #     nn.Linear(self.hidden_size * 2, self.hidden_size),
-        #     nn.GELU(),
-        #     nn.LayerNorm(self.hidden_size)
-        # )
+        # Proiezione di fusione (video 768 + skel 768 -> 768)
+        self.fuse_linear = nn.Sequential(
+            nn.Linear(self.hidden_size * 2, self.hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(self.hidden_size)
+        )
 
         # assicurati che fc_norm sia sempre disponibile
         if not hasattr(self, "fc_norm"):
@@ -88,10 +68,7 @@ class SAFSAR(nn.Module):
 
         self.use_l2_loss = config["use_l2_loss"]
         if self.use_l2_loss:
-            ### In this case we do concatenation
-            # self.global_classification_layer = nn.Linear(config["hidden_size"], config["n_train_classes"])
-            self.global_classification_layer = nn.Linear(self.fused_size, config["n_train_classes"])
-
+            self.global_classification_layer = nn.Linear(config["hidden_size"], config["n_train_classes"])
 
         self.use_textual_embedding = config["use_textual_embedding"]
         self.class_name_embeddings = self.get_textual_embeddings(config["classes_names"])
@@ -99,13 +76,9 @@ class SAFSAR(nn.Module):
         self.debug_samples_counter = 0
 
         if gc:
-            ### In this case we do concatenation
-            # self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
-            self.garbage_prototype = nn.Parameter(torch.randn((1, self.fused_size))).cuda()
+            self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
         # elif disc:  if I initialize it everytime, I dont break the pytorch seed with softmax
-        ### In this case we do concatenation
-        # self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
-        self.discriminator = BinaryClassificationModelSAFSAR(self.fused_size).cuda()
+        self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
         self.gc = gc
         self.disc = disc
 
@@ -146,26 +119,11 @@ class SAFSAR(nn.Module):
         skel_seq: (B, T, J, C) con C=3 (3D) o 2(2D) – qui usiamo 3D.
         Ritorna: (B, hidden_size)
         """
-        # B, T, J, C = skel_seq.shape
-        # x = skel_seq.reshape(B*T, J*C)         # (B*T, J*C)
-        # x = self.skeleton_mlp(x)               # (B*T, 768)
-        # x = x.view(B, T, -1).mean(dim=1)       # pool temporale -> (B, 768)
-        # return x
-        ### print per debug (layer per layer)
         B, T, J, C = skel_seq.shape
         x = skel_seq.reshape(B*T, J*C)         # (B*T, J*C)
-        lin_in   = self.skeleton_mlp[0]        # Linear(J*C -> hidden)
-        act      = self.skeleton_mlp[1]       # GELU
-        lin_out  = self.skeleton_mlp[2]        # Linear(hidden -> 768)
-        x_hidden = act(lin_in(x))              # (B*T, hidden)
-        #print(f"[SKEL] pre-Linear768 (dopo GELU): {tuple(x_hidden.shape)}")  # atteso: (B*T, hidden es. 512)
-
-        x = lin_out(x_hidden)                  # (B*T, 768) ← linearizzazione a 768
-        #print(f"[SKEL] post-Linear768: {tuple(x.shape)}")                    # atteso: (B*T, 768)
-
+        x = self.skeleton_mlp(x)               # (B*T, 768)
         x = x.view(B, T, -1).mean(dim=1)       # pool temporale -> (B, 768)
         return x
-
     ###
 
 
@@ -185,25 +143,12 @@ class SAFSAR(nn.Module):
         outputs = self.model(**inputs)
         support_features = outputs.hidden_states[-1].mean(dim=1)
         support_features = self.fc_norm(support_features)
+        support_features_mean = []
+        for c in support_labels.unique():
+            support_features_mean.append(support_features[support_labels == c].mean(dim=0))
+        support_features_mean = torch.stack(support_features_mean)
 
-        ### print per debug
-        #print("\n=== SAFSAR.forward() ===")
-        #print("[SUPPORT] support_features:", tuple(support_features.shape))  # atteso: (B_sup, 768)
-        #print("[SUPPORT] support_labels unique:", support_labels.unique().tolist())
-
-        # print("[SUPPORT] support_features_mean (prima di fuse):", end=" ")
-        # support_features_mean = []
-        # for c in support_labels.unique():
-        #     support_features_mean.append(support_features[support_labels == c].mean(dim=0))
-        # support_features_mean = torch.stack(support_features_mean)
-        # print(tuple(support_features_mean.shape))  # atteso: (way, 768)
-        #print("[SUPPORT] support_features_mean (prima di fuse):", end=" ")
-        uniq = torch.unique(support_labels.long())
-        support_features_mean = torch.stack(
-            [support_features[support_labels.long() == c].mean(dim=0) for c in uniq]
-        )
-        #print(tuple(support_features_mean.shape))  # atteso: (way, 768)
-
+        # === Skeleton: support (INSERISCI QUI, prima delle textual features) ===
         # === Skeleton: support ===
         sk_sup_feat_mean = None
         support_fused_per_video = None  # <- per i logits globali (L2)
@@ -215,59 +160,27 @@ class SAFSAR(nn.Module):
             sk_sup = support_skeleton.view(B_sup, self.seq_len, self.skel_J, self.skel_C).to(device)
             sk_sup_feat = self.encode_skeleton_seq(sk_sup)      # (B_sup, 768)
 
-            
-            # # per-video fused (serve ai logits globali)
-            ### In this case we do concatenation
-            # support_fused_per_video = self.fuse_linear(torch.cat([support_features, sk_sup_feat], dim=-1))  # (B_sup, 768)
-            support_fused_per_video = torch.cat([support_features, sk_sup_feat], dim=-1) 
+            # per-video fused (serve ai logits globali)
+            support_fused_per_video = self.fuse_linear(torch.cat([support_features, sk_sup_feat], dim=-1))  # (B_sup, 768)
 
             # media per classe (serve ai prototipi few-shot)
             uniq = torch.unique(support_labels.long())
             sk_sup_feat_mean = torch.stack([sk_sup_feat[support_labels.long() == c].mean(dim=0) for c in uniq])   # (way, 768)
 
-            #print("[SUPPORT] sk_sup_feat:", tuple(sk_sup_feat.shape))  # (B_sup, 768)
-            #print("[SUPPORT] support_fused_per_video:", tuple(support_fused_per_video.shape))  # (B_sup, 768)
-            #print("[SUPPORT] sk_sup_feat_mean:", tuple(sk_sup_feat_mean.shape))  # (way, 768)
-
-
         # Fusione video+skeleton per i prototipi (per-classe)
         if sk_sup_feat_mean is not None:
-            ### In this case we do concatenation
-            # support_fused = self.fuse_linear(torch.cat([support_features_mean, sk_sup_feat_mean], dim=-1))  # (way, 768)
-            support_fused = torch.cat([support_features_mean, sk_sup_feat_mean], dim=-1)  # (way, fused_size)
-            #print("[SUPPORT] support_fused (per classe):", tuple(support_fused.shape))  # (way, 768)
+            support_fused = self.fuse_linear(torch.cat([support_features_mean, sk_sup_feat_mean], dim=-1))  # (way, 768)
         else:
             support_fused = support_features_mean
             # fallback per i logits globali: per-video = video-only
             support_fused_per_video = support_features if support_fused_per_video is None else support_fused_per_video
-            #uniq = torch.unique(support_labels.long())
-            #support_features_mean = torch.stack([support_features[support_labels.long() == c].mean(dim=0) for c in uniq])
-            #print("[SUPPORT] support_fused (per classe):", tuple(support_fused.shape))  # (way, 768)
-
+            uniq = torch.unique(support_labels.long())
+            support_features_mean = torch.stack([support_features[support_labels.long() == c].mean(dim=0) for c in uniq])
         # =======================================================================
 
         # add textual features
         if self.use_textual_embedding:
-        # changed due to an error with os_loss=gc
-        #     textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[torch.arange(0, self.way).cuda()].long()]
-        #     ### In this case we do concatenation
-        #     textual_embeddings = [self.text_proj(t) for t in textual_embeddings]
-
-        #     raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_fused, textual_embeddings)]
-        #     support_mm_features = [self.mm_fusion_module(emb)[0] for emb in raw_support_mm_features]
-        #     support_mm_features = torch.stack(support_mm_features)
-        #     #print(self.use_textual_embedding)
-        # else:
-        #     support_mm_features = support_fused
-            way_real = support_fused.size(0)  # non include la garbage
-            idx = torch.arange(way_real, device=batch_class_list.device)
-            # prendi gli id globali di quelle classi
-            class_ids = batch_class_list[idx].long()
-            # costruisci gli embedding BERT corrispondenti
-            textual_embeddings = [self.class_name_embeddings[int(x.item())] for x in class_ids]
-            # proietta 768 -> fused_size (es. 1024)
-            textual_embeddings = [self.text_proj(t) for t in textual_embeddings]
-
+            textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[torch.arange(0, self.way).cuda()].long()]
             raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_fused, textual_embeddings)]
             support_mm_features = [self.mm_fusion_module(emb)[0] for emb in raw_support_mm_features]
             support_mm_features = torch.stack(support_mm_features)
@@ -302,42 +215,25 @@ class SAFSAR(nn.Module):
         outputs = self.model(**inputs)
         query_features = outputs.hidden_states[-1].mean(dim=1)
         query_features = self.fc_norm(query_features)
-        #print("[QUERY] query_features:", tuple(query_features.shape))  # (n_queries, 768)
-
-
         # === Skeleton: query ===
         if self.use_skeleton and (target_skeleton is not None):
             device = query_features.device
             sk_que = target_skeleton.view(n_queries, self.seq_len, self.skel_J, self.skel_C).to(device)  # (nq, T, J, C)
             sk_que_feat = self.encode_skeleton_seq(sk_que)                                              # (nq, 768)
-            ### In this case we do concatenation
-            # query_fused = self.fuse_linear(torch.cat([query_features, sk_que_feat], dim=-1))            # (nq, 768)
-            query_fused = torch.cat([query_features, sk_que_feat], dim=-1)            # (nq, fused_size)
+            query_fused = self.fuse_linear(torch.cat([query_features, sk_que_feat], dim=-1))            # (nq, 768)
         else:
             query_fused = query_features
-        #print("[QUERY] sk_que_feat:", tuple(sk_que_feat.shape))        # (n_queries, 768)
-        #print("[QUERY] query_fused:", tuple(query_fused.shape))        # (n_queries, 768)
-        # stampa sk_que_feat solo se definito (quando use_skeleton True e target_skeleton presente)
-        #if self.use_skeleton and (target_skeleton is not None):
-            #print("[QUERY] sk_que_feat:", tuple(sk_que_feat.shape))    # (n_queries, 768)
-        #print("[QUERY] query_fused:", tuple(query_fused.shape))        # (n_queries, 768)
 
         # Repeat embeddings for each query
         support_mm_features = support_mm_features.unsqueeze(0).repeat(n_queries, 1, 1)
         combined_features = torch.cat((query_fused.unsqueeze(1), support_mm_features), dim=1)
         combined_features = self.task_specific_learning_module(combined_features)
         query_features_aug, support_mm_features_aug = combined_features.split([1, self.way], dim=1)
-        ### print per debug
-        #print("[TASK] combined_features:", tuple(combined_features.shape))        # (nq, 1+way, 768)
-        #print("[TASK] query_features_aug:", tuple(query_features_aug.shape))      # (nq, 1, 768)
-        #print("[TASK] support_mm_features_aug:", tuple(support_mm_features_aug.shape))  # (nq, way, 768)
 
         similarity_matrix = self.cosine_similarity(
             query_features_aug.expand(-1, support_mm_features_aug.size(1), -1),
             support_mm_features_aug
         )
-        ### print per debug
-        #print("[SIM] similarity_matrix:", tuple(similarity_matrix.shape))
 
         # If discriminator, use it
         if self.disc:
@@ -345,8 +241,6 @@ class SAFSAR(nn.Module):
             predictions = torch.argmax(similarity_matrix, dim=-1)
             best_diffs = all_prototypes_differences[torch.arange(len(all_prototypes_differences)), predictions]
             disc_prob = self.discriminator(best_diffs)
-            #print("[DISC] best_diffs:", tuple(best_diffs.shape))    # (nq, 768)
-            #print("[DISC] disc_prob:", tuple(disc_prob.shape)) 
         else:
             disc_prob = None
 
@@ -371,10 +265,6 @@ class SAFSAR(nn.Module):
             support_global_logits = 0.
             query_global_logits = 0.
 
-        ### print per debug
-        #print("[GLOBAL] support_global_logits:", tuple(support_global_logits.shape))  # (B_sup, n_train_classes)
-        #print("[GLOBAL] query_global_logits:", tuple(query_global_logits.shape))      # (nq, n_train_classes)
-
         return {"similarity_matrix": similarity_matrix,
                 "support_global_logits": support_global_logits,
                 "query_global_logits": query_global_logits,
@@ -386,12 +276,6 @@ class SAFSAR(nn.Module):
         known_indices = true_target_labels != -1
         similarity_matrix_k = similarity_matrix[known_indices]
         known_true_target_labels = true_target_labels[known_indices]
-        ### print per debug
-        #print("\n=== compute_known_losses ===")
-        #print("similarity_matrix_k:", tuple(similarity_matrix_k.shape))   # (~nq_known, way)
-        #print("known_true_target_labels:", tuple(known_true_target_labels.shape))
-
-
         # Compute L1 loss
         l1_loss = torch.nn.functional.cross_entropy(similarity_matrix_k, known_true_target_labels)
 
@@ -405,10 +289,6 @@ class SAFSAR(nn.Module):
             l2_loss_support = torch.nn.functional.cross_entropy(support_global_logits, global_support_labels)
             l2_loss_query = torch.nn.functional.cross_entropy(query_global_logits[known_indices], global_query_labels)
             l2_loss = l2_loss_support + l2_loss_query
-            ### print per debug
-            #print("global_support_labels:", tuple(global_support_labels.shape))
-            #print("query_global_logits:", tuple(query_global_logits.shape))
-            #print("global_query_labels (known):", tuple(global_query_labels.shape))
         else:
             l2_loss = 0. # We need to return something
 

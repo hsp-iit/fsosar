@@ -43,10 +43,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         os.makedirs(checkpoint_dir, exist_ok=True)
     # --- Abilita stream skeleton nel DataLoader e nel Modello ---
     config["use_skeleton"] = True
-    # config["skeleton_J"]   = 30 #Stefano's skeletons
-    config["skeleton_J"]   = 16 #Stefano's skeletons with reduced joints
+    config["skeleton_J"]   = 30 #Stefano's skeletons
     # config["skeleton_J"]   = 55 #RTMPose3D skeletons
-    # config["skeleton_J"]   = 48 #RTMPose3D skeletons with reduced joints
     config["skeleton_C"]   = 3   # 3D: (x,y,z)
 
     # Define training parameters
@@ -88,11 +86,9 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
     # Data
     data_config = copy.deepcopy(config)  # Fix config, since GC may change way later and its recreated later
     # data_config["skeleton_root"]   = "/home/mnasato-iit.local/IIT/ergo_perc/ergocub-perception/skeletons_test/videos_npz"
-    data_config["skeleton_format"] = "video_npy"
-    data_config["skeleton_stream"] = "3d"
+    # data_config["skeleton_format"] = "video_npy"
+    # data_config["skeleton_stream"] = "3d"
     # data_config["skeleton_J"]      = 30
-    data_config["skeleton_J"]      = 16 #Stefano's skeletons with reduced joints
-    # data_config["skeleton_J"]      = 48 #RTMPose3D skeletons with reduced joints
     # # data_config["skeleton_C"]   # verrà forzato a 3 quando stream='3d'
 
     def setup_dataloader(train=True):
@@ -209,19 +205,8 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             # all_images = all_images.cuda()
             # all_labels = all_labels.cuda()
             img_shape = target_set.shape[-3:]
-            # J = target_skeleton.shape[-2] if target_skeleton.ndim >= 2 else 30
-            J = target_skeleton.shape[-2] if target_skeleton.ndim >= 2 else 16
+            J = target_skeleton.shape[-2] if target_skeleton.ndim >= 2 else 30
             C = target_skeleton.shape[-1] if target_skeleton.ndim >= 2 else 3
-
-            ### print per debug
-            #print("\n=== BATCH ===")
-            #print("support_set:", tuple(support_set.shape), "target_set:", tuple(target_set.shape))
-            #print("support_labels:", tuple(support_labels.shape), "target_labels:", tuple(target_labels.shape))
-            #print("unknown_set:", tuple(unknown_set.shape), "unknown_labels:", tuple(unknown_labels.shape))
-
-            #print("support_skeleton:", tuple(support_skeleton.shape),
-                #"target_skeleton:", tuple(target_skeleton.shape),
-                #"unknown_skeleton:", tuple(unknown_skeleton.shape))
 
             if os_loss != "softmax" or (not training and os_loss == "softmax") or config["eval_only"]:
                 while True:
@@ -256,11 +241,6 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             all_labels    = all_labels.cuda()
             all_skeletons = all_skeletons.cuda()
 
-            ### print per debug
-            #print("all_images:", tuple(all_images.shape),
-            #"all_labels:", tuple(all_labels.shape),
-            #"all_skeletons:", tuple(all_skeletons.shape))
-
 
             # Forward passs
             # logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list)
@@ -270,13 +250,6 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 support_skeleton=support_skeleton.cuda(),
                 target_skeleton=all_skeletons
             )
-            ### print per debug
-            if step % 10 == 0:
-                sm = logits['similarity_matrix']
-                qg = logits['query_global_logits']
-                sg = logits['support_global_logits']
-                #print(f"[STEP {step}] SIM {tuple(sm.shape)}  QG {getattr(qg,'shape',None)}  SG {getattr(sg,'shape',None)}")
-
             similarity_matrix = logits['similarity_matrix']
             # TODO STRM have 2 similarity matrices, remember to use both for open set loss
 
@@ -290,13 +263,11 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                                                                         target_labels=all_labels,
                                                                         support_labels=support_labels,
                                                                         batch_class_list=batch_class_list)
-                if os_loss in ["gc", "objectosphere"]:
+                if os_loss == "gc":
                     if model_name == "SAFSAR":
-                        rescale_function = lambda x: (x + 1) / 2   # cosine ∈ [-1,1] → [0,1]
-                    elif model_name == "STRM":
-                        rescale_function = torch.exp               # logits → (0, +∞)
-                    else:
-                        rescale_function = None
+                        rescale_function = lambda x: (x+1)/2
+                    if model_name == "STRM":
+                        rescale_function = torch.exp
                 else:
                     rescale_function = None
                 unknown_losses = os_loss_function.loss(logits, all_labels, similarity_matrix, rescale_function)

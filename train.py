@@ -235,6 +235,10 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
             unknown_set = elem["unknown_set"].squeeze(0)
             unknown_labels = elem["unknown_labels"].squeeze(0).long()
 
+            support_skeletons = elem["support_skeletons"].squeeze(0).cuda()
+            target_skeletons = elem["target_skeletons"].squeeze(0).cuda()
+            unknown_skeletons = elem["unknown_skeletons"].squeeze(0).cuda()
+                    
             # Put together known and unknown
             img_shape = target_set.shape[-3:]
             if os_loss != "softmax" or (not training and os_loss == "softmax") or config["eval_only"]:  # at test time, always use unknown set
@@ -242,24 +246,28 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                     all_images = torch.cat((target_set, unknown_set), 0).reshape(-1, config["seq_len"], *img_shape)
                     all_labels = torch.cat((target_labels, torch.full_like(unknown_labels, -1)), 0)
                     all_unknowns = torch.cat((torch.full_like(target_labels, 0), unknown_labels), 0)
-                    t = list(zip(all_images, all_labels, all_unknowns))
+                    all_skeletons = torch.cat((target_skeletons, unknown_skeletons), 0).reshape(len(all_images), config["seq_len"], -1)
+                    t = list(zip(all_images, all_labels, all_unknowns, all_skeletons))
                     random.shuffle(t)
-                    all_images, all_labels, all_unknowns = zip(*t)
+                    all_images, all_labels, all_unknowns, all_skeletons = zip(*t)
                     # Get only first 5 elements for memory constraints
                     all_images = torch.stack(all_images[:maximum_queries])
                     all_images = all_images.reshape(-1, config["seq_len"], *img_shape)
                     all_labels = torch.stack(all_labels[:maximum_queries])
+                    all_skeletons = torch.stack(all_skeletons[:maximum_queries])
                     if (all_labels == -1).sum() > 0 and (all_labels != -1).sum() > 0: 
                         break
             else:
                 all_images = target_set.reshape(-1, config["seq_len"], *img_shape)[:maximum_queries]
                 all_labels = target_labels[:maximum_queries]
                 all_unknowns = unknown_labels[:maximum_queries]
+                all_skeletons = target_skeletons[:maximum_queries]
             all_images = all_images.cuda()
             all_labels = all_labels.cuda()
+            all_skeletons = all_skeletons.cuda()
 
             # Forward passs
-            logits = model(support_set, support_labels, all_images, batch_class_list=batch_class_list)
+            logits = model(support_set, support_labels, support_skeletons, all_images, all_skeletons, batch_class_list=batch_class_list)
             similarity_matrix = logits['similarity_matrix']
             # TODO STRM have 2 similarity matrices, remember to use both for open set loss
 

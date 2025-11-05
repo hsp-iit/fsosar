@@ -34,11 +34,12 @@ class SAFSAR(nn.Module):
         self.query_per_class_test = config["query_per_class_test"]
         self.train_unique_classes = config["train_unique_classes"]
 
-        self.mm_fusion_module = self._build_transformer(config["hidden_size"],
+        hidden_dim = config["hidden_size"] + (256 if config["use_skeletons"] else 0)
+        self.mm_fusion_module = self._build_transformer(hidden_dim,
                                                         config["num_layers_mm"],
                                                         config["num_heads"],
                                                         config["intermediate_size"])  # We do not use batch here
-        self.task_specific_learning_module = self._build_transformer(config["hidden_size"],
+        self.task_specific_learning_module = self._build_transformer(hidden_dim,
                                                                      config["num_layers_task"],
                                                                      config["num_heads"],
                                                                      config["intermediate_size"],
@@ -48,7 +49,7 @@ class SAFSAR(nn.Module):
 
         self.use_textual_embedding = config["use_textual_embedding"]
         if self.use_textual_embedding:
-            self.global_classification_layer = nn.Linear(config["hidden_size"], config["n_train_classes"])
+            self.global_classification_layer = nn.Linear(hidden_dim, config["n_train_classes"])
             self.use_l2_loss = True
         else:
             self.use_l2_loss = False
@@ -63,15 +64,24 @@ class SAFSAR(nn.Module):
         self.os_loss_name = config.get("os_loss", "unknown_loss")
 
         if gc:
-            self.garbage_prototype = nn.Parameter(torch.randn((1, 768))).cuda()
+            self.garbage_prototype = nn.Parameter(torch.randn((1, hidden_dim))).cuda()
             self.garbage_initialized = False
         # if I initialize it everytime, I dont break the pytorch seed with softmax
         self.discriminator = None
         if disc:
-            self.discriminator = BinaryClassificationModelSAFSAR(768).cuda()
+            self.discriminator = BinaryClassificationModelSAFSAR(hidden_dim).cuda()
         self.gc = gc
         self.disc = disc
         self.log_debug_data = config["log_debug_data"]
+
+        self.use_skeletons = config["use_skeletons"]
+        if self.use_skeletons:
+            self.skeletons_mlp = nn.Sequential(
+                nn.Linear(30*16*3, 512),
+                nn.GELU(),
+                nn.Linear(512, 256),
+            )
+            self.text_proj = nn.Linear(768, 1024)
 
     # Override methods to avoid using l2 loss during evaluation
     def set_train(self):
@@ -107,7 +117,7 @@ class SAFSAR(nn.Module):
         torch.cuda.empty_cache()
         return class_name_embeddings
 
-    def forward(self, support_set, support_labels, target_set, batch_class_list=None, precomputed_context_features=None):
+    def forward(self, support_set, support_labels, support_skeletons, target_set, target_skeletons, batch_class_list=None, precomputed_context_features=None):
 
         # Generate support set prototypes
         support_set = support_set.reshape(-1, self.seq_len, 224, 3, 224)
@@ -123,10 +133,20 @@ class SAFSAR(nn.Module):
         for c in support_labels.unique():
             support_features_mean.append(support_features[support_labels == c].mean(dim=0))
         support_features_mean = torch.stack(support_features_mean)
+        # add skeletons
+        if self.use_skeletons:
+            support_skeletons_features = self.skeletons_mlp(support_skeletons.reshape(-1, self.seq_len*30*3))
+            support_skeletons_features_mean = []
+            for c in support_labels.unique():
+                support_skeletons_features_mean.append(support_skeletons_features[support_labels == c].mean(dim=0))
+            support_skeletons_mean = torch.stack(support_skeletons_features_mean)
+            support_features_mean = torch.cat((support_features_mean, support_skeletons_mean), dim=1)
         # add textual features
         if self.use_textual_embedding:  # since torch.unique() orders the results, we use torch.arange to get correctly the class names
             n_supp_classes = self.way-1 if self.gc else self.way
             textual_embeddings = [self.class_name_embeddings[x] for x in batch_class_list[torch.arange(0, n_supp_classes).cuda()].long()]
+            if self.use_skeletons:
+                textual_embeddings = [self.text_proj(x) for x in textual_embeddings]
             raw_support_mm_features = [torch.cat((v.unsqueeze(0), t)) for v, t in zip(support_features_mean, textual_embeddings)]
             support_mm_features = [self.mm_fusion_module(emb)[0] for emb in raw_support_mm_features]
             support_mm_features = torch.stack(support_mm_features)
@@ -167,6 +187,10 @@ class SAFSAR(nn.Module):
         outputs = self.model(**inputs)
         query_features = outputs.hidden_states[-1].mean(dim=1)
         query_features = self.fc_norm(query_features)
+        # add skeletons
+        if self.use_skeletons:
+            target_skeletons_features = self.skeletons_mlp(target_skeletons.reshape(-1, self.seq_len*30*3))
+            query_features = torch.cat((query_features, target_skeletons_features), dim=1)
 
         # Repeat embeddings for each query
         support_mm_features = support_mm_features.unsqueeze(0).repeat(n_queries, 1, 1)
@@ -190,7 +214,7 @@ class SAFSAR(nn.Module):
 
         # Compute global logits
         if self.use_l2_loss:
-            support_global_logits = self.global_classification_layer(support_features)
+            support_global_logits = self.global_classification_layer(support_features_mean)
             query_global_logits = self.global_classification_layer(query_features)
         else:
             support_global_logits = 0. # We need to return something
@@ -212,7 +236,7 @@ class SAFSAR(nn.Module):
 
         # Compute L2 loss
         if self.use_l2_loss:
-            global_support_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
+            global_support_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[support_labels.unique()]]).cuda()
             if self.gc:  # here we need to get rid of the garbage class
                 known_indices = target_labels != (self.way-1)
             global_query_labels = torch.tensor([self.train_unique_classes.index(x) for x in batch_class_list[target_labels[known_indices]]]).cuda()
@@ -246,7 +270,7 @@ class SAFSAR(nn.Module):
             if self.use_l2_loss:
                 query_global_logits_k = query_global_logits[known_indices]
                 unique_classes = self.train_unique_classes
-                global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels]]).cuda()
+                global_support_labels = torch.tensor([unique_classes.index(x) for x in batch_class_list[support_labels.unique()]]).cuda()
                 global_query_labels_k = torch.tensor([unique_classes.index(x) for x in batch_class_list[target_labels_k]]).cuda()
                 global_support_acc = compute_accuracy(support_global_logits, global_support_labels)
                 global_query_acc = compute_accuracy(query_global_logits_k, global_query_labels_k)

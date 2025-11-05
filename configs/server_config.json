@@ -16,5 +16,6 @@
     "save_confidence_scores": false,
     "max_steps": 100000000,
     "num_workers": 4,
-    "log_debug_data": false
+    "log_debug_data": false,
+    "use_skeletons": true
 }

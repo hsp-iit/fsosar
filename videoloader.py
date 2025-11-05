@@ -12,6 +12,7 @@ import pickle
 from transformers import AutoImageProcessor
 import copy
 import json
+from pathlib import Path
 
 
 """Contains video frame paths and ground truth labels for a single split (e.g. train videos). """
@@ -334,7 +335,16 @@ class VideoDataset(torch.utils.data.Dataset):
                 # Default behavior
                 imgs = [self.tensor_transform(v) for v in transform(imgs)]
                 imgs = torch.stack(imgs)
-        return imgs, vid_id
+
+        # Load also skeleton if available
+        poses = 0.  # none would give errors later
+        if (Path(paths[0]).parent / "poses.npy").exists():
+            poses = np.load(Path(paths[0]).parent / "poses.npy")
+            poses = torch.FloatTensor(poses)
+            if self.seq_len == 8:
+                poses = poses[::2]
+
+        return imgs, vid_id, poses
 
     """returns dict of support and target images and labels"""
     def __getitem__(self, index):
@@ -357,6 +367,9 @@ class VideoDataset(torch.utils.data.Dataset):
         real_target_labels = []
         unknown_set = []
         unknown_labels = []
+        support_skeletons = []
+        target_skeletons = []
+        unknown_skeletons = []
 
         for bl, bc in enumerate(batch_classes):
             
@@ -365,14 +378,16 @@ class VideoDataset(torch.utils.data.Dataset):
             idxs = random.sample([i for i in range(n_total)], self.shot + n_queries)
 
             for idx in idxs[0:self.shot]:
-                vid, vid_id = self.get_seq(bc, idx)
+                vid, vid_id, poses = self.get_seq(bc, idx)
                 support_set.append(vid)
                 support_labels.append(bl)
+                support_skeletons.append(poses)
             for idx in idxs[self.shot:]:
-                vid, vid_id = self.get_seq(bc, idx)
+                vid, vid_id, poses = self.get_seq(bc, idx)
                 target_set.append(vid)
                 target_labels.append(bl)
                 real_target_labels.append(bc)
+                target_skeletons.append(poses)
 
         # Select unknown classes
         unknown_classes = [x for x in classes if x not in batch_classes]
@@ -381,30 +396,36 @@ class VideoDataset(torch.utils.data.Dataset):
                 bc = random.choice(unknown_classes)
                 n_total = c.get_num_videos_for_class(bc)
                 idx = random.randint(0, n_total - 1)
-                vid, vid_id = self.get_seq(bc, idx)
+                vid, vid_id, poses = self.get_seq(bc, idx)
                 unknown_set.append(vid)
                 unknown_labels.append(bc)
+                unknown_skeletons.append(poses)
         
-        s = list(zip(support_set, support_labels))
+        s = list(zip(support_set, support_labels, support_skeletons))
         random.shuffle(s)
-        support_set, support_labels = zip(*s)
+        support_set, support_labels, support_skeletons = zip(*s)
         
-        t = list(zip(target_set, target_labels, real_target_labels))
+        t = list(zip(target_set, target_labels, real_target_labels, target_skeletons))
         random.shuffle(t)
-        target_set, target_labels, real_target_labels = zip(*t)
+        target_set, target_labels, real_target_labels, target_skeletons = zip(*t)
 
         unknown_set = torch.cat(unknown_set)
         unknown_labels = torch.FloatTensor(unknown_labels)
+        unknown_skeletons = torch.cat(unknown_skeletons)
         
         support_set = torch.cat(support_set)
+        support_skeletons = torch.cat(support_skeletons)
         target_set = torch.cat(target_set)
+        target_skeletons = torch.cat(target_skeletons)
         support_labels = torch.FloatTensor(support_labels)
         target_labels = torch.FloatTensor(target_labels)
         real_target_labels = torch.FloatTensor(real_target_labels)
         batch_classes = torch.FloatTensor(batch_classes) 
 
-        return {"support_set":support_set, "support_labels":support_labels, "target_set":target_set, "target_labels":target_labels, "real_target_labels":real_target_labels, "batch_class_list": batch_classes, 
-                "unknown_set":unknown_set, "unknown_labels":unknown_labels}
+        return {"support_set":support_set, "support_labels":support_labels, "support_skeletons": support_skeletons,
+                "target_set":target_set, "target_labels":target_labels, "target_skeletons": target_skeletons,
+                "real_target_labels":real_target_labels, "batch_class_list": batch_classes, 
+                "unknown_set":unknown_set, "unknown_labels":unknown_labels, "unknown_skeletons": unknown_skeletons}
 
 
 class HMDB:

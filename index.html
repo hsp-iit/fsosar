@@ -52,7 +52,7 @@
     <div class="container is-max-desktop">
       <div class="columns is-centered">
         <div class="column has-text-centered">
-          <h1 class="title is-1 publication-title">Beyond Closed-Set Assumptions: Benchmarking and Adapting Few-Shot Action Recognition for Open-Set Scenarios</h1>
+          <h1 class="title is-1 publication-title">A Baseline Study and Benchmark for Few-Shot Open-Set Action Recognition with Feature Residual Discrimination</h1>
           <div class="column has-text-centered">
             <div class="publication-links">
               <!-- PDF Link. -->
@@ -86,7 +86,7 @@
               </span>
               <!-- Code Link. -->
               <span class="link-block">
-                <a href="../code/README.html"
+                <a href="https://github.com/HSP-IIT/fsosar"
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
                       <i class="fab fa-github"></i>
@@ -334,29 +334,16 @@
         <h2 class="title is-3">Abstract</h2>
         <div class="content has-text-justified">
           <p>
-            Few-shot action recognition (FS-AR) is a well-explored task in the literature that has shown promise in various applications, 
-            but its assumption of a closed-set world limits its applicability to real-world scenarios, which typically involve open-set conditions. 
+            Few-Shot Action Recognition (FS-AR) has shown promising results but is often limited by a closed-set assumption that fails in real-world open-set scenarios.
           </p>
           <p>
-            On the other hand, the analysis of few-shot open-set (FSOS) recognition for images is also well covered in the literature, 
-            but its extension to spatio-temporal input data remains underexplored. 
+            While Few-Shot Open-Set (FSOS) recognition is well-established for images, its extension to spatio-temporal video data remains underexplored.
           </p>
           <p>
-            To address this gap, we first propose a novel benchmark suite that modifies the tasks typically considered in five widely 
-            adopted datasets for FS-AR, to become open-set.
+            To address this, we propose an architectural extension based on a Feature-Residual Discriminator (FR-Disc), adapting previous work on skeletal data to the more complex video domain.
           </p>
           <p>
-            By using the proposed benchmark suite, we identify the limitations of state-of-the-art FS-AR models under open-set conditions.
-          </p>
-          <p>
-            We then show how it is possible to modify FS-AR models with open-set recognition methods taken from the literature of image classification. 
-          </p>
-          <p>
-            These models vary in computational cost, offering a broad perspective on performance.
-          </p>
-          <p>
-            By conducting extensive experiments on five datasets, our results confirm FSOS action recognition (FSOS-AR) as a challenging task, 
-            but we show how closed-set FS-AR models can be adapted to the open-set task without losing accuracy on the closed-set classification.
+            Extensive experiments on five datasets demonstrate that while common open-set techniques provide only marginal gains, our FR-Disc significantly enhances unknown rejection capabilities without compromising closed-set accuracy, setting a new state-of-the-art for FSOS-AR.
           </p>
         </div>
       </div>
@@ -375,15 +362,14 @@
           Video Chapters
         </p>
         <ul class="menu-list video-nav">
-          <li><a data-time="0" class="is-active">Introduction</a></li>
-          <li><a data-time="15">Problem Statement</a></li>
-          <li><a data-time="69">Related works</a></li>
-          <li><a data-time="80.5">Contributions outline</a></li>
-          <li><a data-time="114">Contribution 1: Benchmark</a></li>
-          <li><a data-time="212.5">Contribution 2: Baseline Analysis</a></li>
-          <li><a data-time="305">Contribution 3: Model Adaptation</a></li>
-          <li><a data-time="474">GUI</a></li>
-          <li><a data-time="488">Qualitative real-world comparison</a></li>
+          <li><a data-time="0" class="is-active">Problem Statement</a></li>
+          <li><a data-time="54">Related works</a></li>
+          <li><a data-time="65.5">Contributions outline</a></li>
+          <li><a data-time="99">Contribution 1: Benchmark</a></li>
+          <li><a data-time="197.5">Contribution 2: Baseline Analysis</a></li>
+          <li><a data-time="290">Contribution 3: Model Adaptation</a></li>
+          <li><a data-time="459">GUI</a></li>
+          <li><a data-time="473">Qualitative real-world comparison</a></li>
         </ul>
       </aside>
     </div>
@@ -695,7 +681,7 @@
 
 
 
-<section class="section" id="BibTeX">
+<!-- <section class="section" id="BibTeX">
   <div class="container is-max-desktop content">
     <h2 class="title">BibTeX</h2>
     <pre><code>@article{fsosar26,
@@ -705,7 +691,7 @@
   year      = {2026},
 }</code></pre>
   </div>
-</section>
+</section> -->
 
 
 <footer class="footer">

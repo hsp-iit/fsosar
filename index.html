@@ -391,7 +391,8 @@
     <!-- Column 2: The Video Player -->
     <div class="column">
       <div class="publication-video">
-        <video id="paperVideo" src="static/FSOSAR.mp4" controls width="100%">
+        <video id="paperVideo" width="100%" controls muted preload="metadata" playsinline>
+            <source src="static/FSOSAR.mp4" type="video/mp4">
             Your browser does not support the video tag.
         </video>
       </div>

@@ -1,0 +1,232 @@
+body {
+  font-family: 'Noto Sans', sans-serif;
+}
+
+
+.footer .icon-link {
+    font-size: 25px;
+    color: #000;
+}
+
+.link-block a {
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.dnerf {
+  font-variant: small-caps;
+}
+
+
+.teaser .hero-body {
+  padding-top: 0;
+  padding-bottom: 3rem;
+}
+
+.teaser {
+  font-family: 'Google Sans', sans-serif;
+}
+
+
+.publication-title {
+}
+
+.publication-banner {
+  max-height: parent;
+
+}
+
+.publication-banner video {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+  object-fit: fit;
+}
+
+.publication-header .hero-body {
+}
+
+.publication-title {
+    font-family: 'Google Sans', sans-serif;
+}
+
+.publication-authors {
+    font-family: 'Google Sans', sans-serif;
+}
+
+.publication-venue {
+    color: #555;
+    width: fit-content;
+    font-weight: bold;
+}
+
+.publication-awards {
+    color: #ff3860;
+    width: fit-content;
+    font-weight: bolder;
+}
+
+.publication-authors {
+}
+
+.publication-authors a {
+   color: hsl(204, 86%, 53%) !important;
+}
+
+.publication-authors a:hover {
+    text-decoration: underline;
+}
+
+.author-block {
+  display: inline-block;
+}
+
+.publication-banner img {
+}
+
+.publication-authors {
+  /*color: #4286f4;*/
+}
+
+.publication-video {
+    position: relative;
+    width: 100%;
+    height: 0;
+    padding-bottom: 56.25%;
+
+    overflow: hidden;
+    border-radius: 10px !important;
+}
+
+.publication-video iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.publication-body img {
+}
+
+.results-carousel {
+  overflow: hidden;
+}
+
+.results-carousel .item {
+  margin: 5px;
+  overflow: hidden;
+  border: 1px solid #bbb;
+  border-radius: 10px;
+  padding: 0;
+  font-size: 0;
+}
+
+.results-carousel video {
+  margin: 0;
+}
+
+
+.interpolation-panel {
+  background: #f5f5f5;
+  border-radius: 10px;
+}
+
+.interpolation-panel .interpolation-image {
+  width: 100%;
+  border-radius: 5px;
+}
+
+.interpolation-video-column {
+}
+
+.interpolation-panel .slider {
+  margin: 0 !important;
+}
+
+.interpolation-panel .slider {
+  margin: 0 !important;
+}
+
+#interpolation-image-wrapper {
+  width: 100%;
+}
+#interpolation-image-wrapper img {
+  border-radius: 5px;
+}
+
+
+
+/* === Use this updated CSS for BOTH tables === */
+
+.results-table {
+  text-align: center;
+}
+
+/* For the first table's side-header */
+.results-table .row-header {
+  vertical-align: middle !important;
+  text-align: left;
+}
+
+/* For the second table's top-header */
+.results-table .dataset-header td {
+  background-color: #fafafa !important; /* A very light grey to separate sections */
+  font-weight: bold;
+  text-align: left;
+  border-top: 2px solid #dbdbdb; /* Creates a strong dividing line */
+  border-bottom: 1px solid #dbdbdb;
+  padding-left: 1em !important;
+}
+/* Ensure the dataset header doesn't change color on hover */
+.results-table .dataset-header:hover td {
+    background-color: #fafafa !important;
+}
+
+
+.results-table .is-vcentered {
+  vertical-align: middle;
+}
+
+/* Color definitions for comparison */
+.has-text-green {
+  color: #228B22 !important;
+  font-weight: 500;
+}
+.has-text-red {
+  color: #D32F2F !important;
+  font-weight: 500;
+}
+.has-text-orange {
+  color: #F57C00 !important;
+  font-weight: 500;
+}
+
+/* Highlight for your method's row */
+.table.is-striped tbody tr.is-selected {
+  background-color: #e9f5ff;
+}
+.table.is-striped tbody tr.is-selected:hover {
+  background-color: #d8ecff;
+}
+.is-selected strong {
+  font-weight: 700;
+}
+.table tbody tr.is-selected td {
+  color: #363636;
+}
+
+
+
+/* === VIDEO NAVIGATION === */
+/* Make the video navigation links look clickable */
+.video-nav a {
+  cursor: pointer;
+}
+
+/* Style for the currently active/selected chapter link */
+.video-nav a.is-active {
+  background-color: hsl(217, 71%, 53%); /* Bulma's primary color */
+  color: #fff !important;
+}

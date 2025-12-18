@@ -1,0 +1,1 @@
+var labels_TrueClass_NTURGBD_0 = "pick_up";

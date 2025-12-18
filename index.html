@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="Beyond Closed-Set Assumptions: Benchmarking and Adapting Few-Shot Action Recognition for Open-Set Scenarios">
+  <meta name="keywords" content="Few-Shot, Open-Set, Action Recognition, Benchmark, Models">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beyond Closed-Set Assumptions: Benchmarking and Adapting Few-Shot Action Recognition for Open-Set Scenarios</title>
+
+  <script>
+    window.dataLayer = window.dataLayer || [];
+
+    function gtag() {
+      dataLayer.push(arguments);
+    }
+
+    gtag('js', new Date());
+
+    gtag('config', 'G-PYVRSFMDRL');
+  </script>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+  <link rel="icon" href="static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+  <script src="static/js/bulma-carousel.min.js"></script>
+  <script src="static/js/bulma-slider.min.js"></script>
+  <script src="static/js/index.js"></script>
+
+<!-- latex -->
+ <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+
+</head>
+<body>
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">Beyond Closed-Set Assumptions: Benchmarking and Adapting Few-Shot Action Recognition for Open-Set Scenarios</h1>
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <!-- PDF Link. -->
+              <!-- <span class="link-block">
+                <a href="../FSOSAR.pdf"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-file-pdf"></i>
+                  </span>
+                  <span>Paper</span>
+                </a>
+              </span> -->
+              <span class="link-block">
+                <a href="../SUPP.pdf"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-file-pdf"></i>
+                  </span>
+                  <span>Supplementary Materials</span>
+                </a>
+              </span>
+              <!-- Video Link. -->
+              <span class="link-block">
+                <a href="../FSOSAR.mp4"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-youtube"></i>
+                  </span>
+                  <span>Video</span>
+                </a>
+              </span>
+              <!-- Code Link. -->
+              <span class="link-block">
+                <a href="../code/README.html"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code</span>
+                  </a>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Qualitative Examples</h2>
+
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <div class="content has-text-justified">
+          <p>Choose a dataset between SSv2 and NTURGBD and check some qualitative comparison between the baseline Softmax and its improvement FR-Disc for open-set tasks.</p>
+          <p>The accept score is a percentage value on the confidence of the prediction, that is  \( \hat{u}_i \) in the <a href="#main">figure below</a>.</p>
+          <p>The baseline tends to assign higher confidence scores to unknown queries, while FR-Disc produces lower scores, indicating better discrimination.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dropdown selectors -->
+    <div class="columns is-centered mb-5">
+      <!-- Dataset Selector -->
+      <div class="column is-one-third has-text-centered">
+        <label class="label">Select Dataset</label>
+        <div class="select is-primary is-fullwidth">
+          <select id="datasetSelector" onchange="updateImages()">
+            <option value="SSv2">SSv2</option>
+            <option value="NTURGBD">NTURGBD</option>
+            <!-- Add more datasets if needed -->
+          </select>
+        </div>
+      </div>
+
+      <!-- Example Selector -->
+      <div class="column is-one-third has-text-centered">
+        <label class="label">Select Example</label>
+        <div class="select is-primary is-fullwidth">
+          <select id="exampleSelector" onchange="updateImages()">
+            <option value="0">Example 0</option>
+            <option value="1">Example 1</option>
+            <option value="2">Example 2</option>
+            <!-- Add more examples if needed -->
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Qualitative comparison section -->
+    <div class="columns is-vcentered">
+      <!-- Left side: Action labels and GIF -->
+      <div class="column is-half">
+        <!-- Support Set title -->
+        <h3 class="title is-5 has-text-centered mb-3">Support Set</h3>
+        
+        <div class="columns is-gapless">
+          <!-- Action labels column -->
+          <div class="column is-narrow" style="width: 160px; display: flex; flex-direction: column; justify-content: space-between; padding-right: 20px;">
+            <div style="height: 100%; display: flex; flex-direction: column; justify-content: space-around;">
+              <div style="text-align: right; font-size: 0.7em; font-weight: bold; color: #333; word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; line-height: 1.2; height: 40px; display: flex; align-items: center; justify-content: flex-end;" id="action-0">Action 1</div>
+              <div style="text-align: right; font-size: 0.7em; font-weight: bold; color: #333; word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; line-height: 1.2; height: 40px; display: flex; align-items: center; justify-content: flex-end;" id="action-1">Action 2</div>
+              <div style="text-align: right; font-size: 0.7em; font-weight: bold; color: #333; word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; line-height: 1.2; height: 40px; display: flex; align-items: center; justify-content: flex-end;" id="action-2">Action 3</div>
+              <div style="text-align: right; font-size: 0.7em; font-weight: bold; color: #333; word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; line-height: 1.2; height: 40px; display: flex; align-items: center; justify-content: flex-end;" id="action-3">Action 4</div>
+              <div style="text-align: right; font-size: 0.7em; font-weight: bold; color: #333; word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; line-height: 1.2; height: 40px; display: flex; align-items: center; justify-content: flex-end;" id="action-4">Action 5</div>
+            </div>
+          </div>
+          
+          <!-- GIF column -->
+          <div class="column">
+            <figure class="image" style="max-width: 100%;">
+              <img id="largeGif" src="static/examples/NTURGBD/0/ss.gif" alt="Large GIF Example"
+                style="height: auto; width: 100%; display: block;">
+            </figure>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right GIF (query) + comparison text -->
+      <div class="column is-half has-text-centered">
+        <!-- Query title -->
+        <h3 class="title is-5 has-text-centered mb-3">Query</h3>
+        
+        <!-- Query GIF centered over the full width -->
+        <figure class="image" style="max-width: 200px; margin: 0 auto 1rem auto;">
+          <img id="queryGif" src="static/examples/NTURGBD/0/query.gif" alt="Small GIF Example"
+            style="max-width: 200px; height: auto; display: block;">
+        </figure>
+
+        <!-- True class information -->
+        <p style="margin-bottom: 1rem; word-wrap: break-word; overflow-wrap: break-word;"><strong>True Class:</strong> <span id="trueClass" style="word-wrap: break-word; overflow-wrap: break-word;">Loading...</span></p>
+
+        <!-- Two-column comparison text -->
+        <div class="columns is-mobile is-gapless">
+          <div class="column has-text-centered pr-2" style="text-align: center;">
+            <p><strong>Baseline:</strong></p>
+            <p style="word-wrap: break-word; overflow-wrap: break-word;"><strong>Candidate Class:</strong> <span id="baselinePredictedClass" style="word-wrap: break-word; overflow-wrap: break-word;">Loading...</span></p>
+            <p><strong>Accept Score:</strong> <span id="baselineAcceptScore">Loading...</span>%</p>
+          </div>
+          <div class="column has-text-centered pl-2" style="text-align: center;">
+            <p><strong>FR-Disc:</strong></p>
+            <p style="word-wrap: break-word; overflow-wrap: break-word;"><strong>Candidate Class:</strong> <span id="oursPredictedClass" style="word-wrap: break-word; overflow-wrap: break-word;">Loading...</span></p>
+            <p><strong>Accept Score:</strong> <span id="oursAcceptScore">Loading...</span>%</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- JavaScript -->
+<script>
+  // We'll load the text content from separate .js files that define the text as variables
+  // This is the most reliable way to load text without a web server
+  
+  function loadTextFromDataFile(dataset, example, type, callback) {
+    // Try to load from a JavaScript file that defines the text content
+    const script = document.createElement('script');
+    const scriptPath = `static/examples/${dataset}/${example}/${type}.js`;
+    
+    script.onload = function() {
+      // The .js file should define global variables with the content
+      const textVar = `${type}_Text_${dataset}_${example}`;
+      const predictedClassVar = `${type}_PredictedClass_${dataset}_${example}`;
+      const acceptScoreVar = `${type}_AcceptScore_${dataset}_${example}`;
+      const trueClassVar = `${type}_TrueClass_${dataset}_${example}`;
+      
+      const result = {
+        text: window[textVar] || 'Text not available',
+        predictedClass: window[predictedClassVar] || 'N/A',
+        acceptScore: window[acceptScoreVar] || 'N/A',
+        trueClass: window[trueClassVar] || 'N/A'
+      };
+      
+      callback(result);
+      document.head.removeChild(script);
+      
+      // Clean up the global variables
+      if (window[textVar]) delete window[textVar];
+      if (window[predictedClassVar]) delete window[predictedClassVar];
+      if (window[acceptScoreVar]) delete window[acceptScoreVar];
+      if (window[trueClassVar]) delete window[trueClassVar];
+    };
+    
+    script.onerror = function() {
+      callback({
+        text: 'Text not available',
+        predictedClass: 'N/A',
+        acceptScore: 'N/A',
+        trueClass: 'N/A'
+      });
+      document.head.removeChild(script);
+    };
+    
+    script.src = scriptPath;
+    document.head.appendChild(script);
+  }
+
+  function updateImages() {
+    const dataset = document.getElementById("datasetSelector").value;
+    const exampleId = document.getElementById("exampleSelector").value;
+
+    const basePath = `static/examples/${dataset}/${exampleId}`;
+    document.getElementById("largeGif").src = `${basePath}/ss.gif`;
+    document.getElementById("queryGif").src = `${basePath}/query.gif`;
+
+    // Set loading text for all fields
+    document.getElementById("baselinePredictedClass").textContent = "Loading...";
+    document.getElementById("baselineAcceptScore").textContent = "Loading...";
+    document.getElementById("oursPredictedClass").textContent = "Loading...";
+    document.getElementById("oursAcceptScore").textContent = "Loading...";
+    document.getElementById("trueClass").textContent = "Loading...";
+
+    // Load baseline data
+    loadTextFromDataFile(dataset, exampleId, 'baseline', function(data) {
+      document.getElementById("baselinePredictedClass").textContent = data.predictedClass.replace(/_/g, ' ');
+      document.getElementById("baselineAcceptScore").textContent = data.acceptScore;
+    });
+
+    // Load ours data
+    loadTextFromDataFile(dataset, exampleId, 'ours', function(data) {
+      document.getElementById("oursPredictedClass").textContent = data.predictedClass.replace(/_/g, ' ');
+      document.getElementById("oursAcceptScore").textContent = data.acceptScore;
+    });
+
+    // Load true class from labels.js
+    loadTextFromDataFile(dataset, exampleId, 'labels', function(data) {
+      const trueClass = data.trueClass || data.text || 'N/A';
+      document.getElementById("trueClass").textContent = trueClass.replace(/_/g, ' ');
+    });
+
+    // Load action labels from ss.js
+    loadTextFromDataFile(dataset, exampleId, 'ss', function(data) {
+      updateActionLabels(data.text);
+    });
+  }
+
+  function updateActionLabels(labelsText) {
+    // Parse the action labels (expecting comma-separated or line-separated)
+    let actions;
+    if (labelsText && labelsText !== 'Text not available') {
+      // Try comma-separated first, then line-separated
+      if (labelsText.includes(',')) {
+        actions = labelsText.split(',').map(l => l.trim());
+      } else {
+        actions = labelsText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      }
+      
+      // Replace underscores with spaces for better readability
+      actions = actions.map(action => action.replace(/_/g, ' '));
+    } else {
+      // Default action names if no file found
+      actions = ['Action 1', 'Action 2', 'Action 3', 'Action 4', 'Action 5'];
+    }
+
+    // Update each action label (5 rows)
+    for (let i = 0; i < 5; i++) {
+      const actionElement = document.getElementById(`action-${i}`);
+      if (actionElement && actions[i]) {
+        actionElement.textContent = actions[i];
+      }
+    }
+  }
+
+  // Initialize on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    updateImages();
+  });
+</script>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Abstract. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            Few-shot action recognition (FS-AR) is a well-explored task in the literature that has shown promise in various applications, 
+            but its assumption of a closed-set world limits its applicability to real-world scenarios, which typically involve open-set conditions. 
+          </p>
+          <p>
+            On the other hand, the analysis of few-shot open-set (FSOS) recognition for images is also well covered in the literature, 
+            but its extension to spatio-temporal input data remains underexplored. 
+          </p>
+          <p>
+            To address this gap, we first propose a novel benchmark suite that modifies the tasks typically considered in five widely 
+            adopted datasets for FS-AR, to become open-set.
+          </p>
+          <p>
+            By using the proposed benchmark suite, we identify the limitations of state-of-the-art FS-AR models under open-set conditions.
+          </p>
+          <p>
+            We then show how it is possible to modify FS-AR models with open-set recognition methods taken from the literature of image classification. 
+          </p>
+          <p>
+            These models vary in computational cost, offering a broad perspective on performance.
+          </p>
+          <p>
+            By conducting extensive experiments on five datasets, our results confirm FSOS action recognition (FSOS-AR) as a challenging task, 
+            but we show how closed-set FS-AR models can be adapted to the open-set task without losing accuracy on the closed-set classification.
+          </p>
+        </div>
+      </div>
+    </div>
+    <!--/ Abstract. -->
+
+<!-- Paper video with Navigation -->
+<div class="container">
+  <h2 class="title is-3 has-text-centered">Video</h2>
+  <div class="columns is-centered">
+
+    <!-- Column 1: Video Navigation Menu -->
+    <div class="column is-one-quarter">
+      <aside class="menu">
+        <p class="menu-label">
+          Video Chapters
+        </p>
+        <ul class="menu-list video-nav">
+          <li><a data-time="0" class="is-active">Introduction</a></li>
+          <li><a data-time="15">Problem Statement</a></li>
+          <li><a data-time="69">Related works</a></li>
+          <li><a data-time="80.5">Contributions outline</a></li>
+          <li><a data-time="114">Contribution 1: Benchmark</a></li>
+          <li><a data-time="212.5">Contribution 2: Baseline Analysis</a></li>
+          <li><a data-time="305">Contribution 3: Model Adaptation</a></li>
+          <li><a data-time="474">GUI</a></li>
+          <li><a data-time="488">Qualitative real-world comparison</a></li>
+        </ul>
+      </aside>
+    </div>
+
+    <!-- Column 2: The Video Player -->
+    <div class="column">
+      <div class="publication-video">
+        <video id="paperVideo" src="../FSOSAR.mp4" controls width="100%">
+            Your browser does not support the video tag.
+        </video>
+      </div>
+    </div>
+
+  </div>
+</div>
+<!--/ Paper video with Navigation -->
+
+<!-- Corrected Methods overview -->
+<div class="columns is-centered">
+  <div class="column is-full-width">
+    <h2 class="title is-3 has-text-centered">Methods</h2>
+    <div class="content has-text-justified">
+      <p>
+        Overview of the considered open-set techniques adopted in our analysis.
+      </p>
+      <p>
+        We consider Maximum-Logit-Score and Entropy-Open-Set as Implicit open-set techniques, and Garbage-Class and FR-Disc as Explicit open-set techniques.
+      </p>
+      <p>
+        As a Model, we considered <a href="https://github.com/Anirudh257/strm">STRM</a> and <a href="https://arxiv.org/abs/2311.06218">SAFSAR</a>.
+      </p>
+    </div>
+    <div class="content has-text-centered">
+      <img src="static/images/methods.png"
+           alt="Methods Overview"
+           style="width: 100%; max-width: 100%;"
+           id="main">
+    </div>
+  </div>
+</div>
+<!--/ Methods overview -->
+
+<!-- Corrected Code for Correlation Analysis -->
+<div class="columns is-centered">
+  <div class="column is-full-width">  <!-- This column is fine as it provides structure -->
+
+    <!-- 1. Use has-text-centered to center the heading -->
+    <h2 class="title is-3 has-text-centered">Correlation Analysis</h2>
+    
+    <!-- 2. The inner column structure is okay, but is-centered is often not needed if columns are equal width -->
+    <div class="columns is-vcentered"> <!-- is-vcentered vertically aligns the columns, which is often nice -->
+      
+      <!-- Left column: Comments -->
+      <div class="column">
+        <div class="content">
+          <p>
+            Previous works claim that in the image domain exists a correlation between closed-set and open-set performances.
+          </p>
+          <p>
+            We performed an analysis similar to previous works, but on the action recognition domain.
+          </p>
+          <p>
+            Our findings demonstrates that for the two considered model, there is a linear correlation between closed and open-set performances, as also show in the plot on the right.
+          </p>
+        </div>
+      </div>
+      
+      <!-- Right column: Image -->
+      <div class="column">
+        <div class="content has-text-centered">
+          <img src="static/images/correlation.png"
+               alt="Correlation Analysis"
+               style="width: 100%; max-width: 100%;">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+  </div>
+</section>
+
+
+
+
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Quantitative Results</h2>
+    
+    <div class="content has-text-centered mb-5">
+      <p class="is-size-5">
+        The <strong>FR-Disc</strong> row is highlighted, and cell colors show performance relative to the Softmax baseline.
+      </p>
+    </div>
+
+    <!-- Tabs to select the table -->
+    <div class="tabs is-centered is-boxed">
+      <ul>
+        <li class="is-active" data-target="safsar-table-content">
+          <a>
+            <span class="icon is-small"><i class="fas fa-table" aria-hidden="true"></i></span>
+            <span>SAFSAR Results</span>
+          </a>
+        </li>
+        <li data-target="strm-table-content">
+          <a>
+            <span class="icon is-small"><i class="fas fa-table" aria-hidden="true"></i></span>
+            <span>STRM Results</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Container for the SAFSAR table (visible by default) -->
+    <div id="safsar-table-content" class="table-content">
+      <div class="content has-text-centered">
+        <p>
+          Combined results for SAFSAR in 5-way 1-shot and 5-shot settings.
+        </p>
+      </div>
+      <div class="table-container">
+        <table class="table is-bordered is-striped is-narrow is-hoverable is-fullwidth results-table">
+          <thead>
+            <tr>
+              <th rowspan="2" class="is-vcentered">Dataset</th>
+              <th rowspan="2" class="is-vcentered">OS-Method</th>
+              <th colspan="2">FS ACC</th><th colspan="2">OS ACC</th><th colspan="2">AUROC</th><th colspan="2">AUPR</th><th colspan="2">OSCR</th>
+            </tr>
+            <tr>
+              <th>1-shot</th><th>5-shot</th><th>1-shot</th><th>5-shot</th><th>1-shot</th><th>5-shot</th><th>1-shot</th><th>5-shot</th><th>1-shot</th><th>5-shot</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Diving48 -->
+            <tr>
+              <td rowspan="4" class="row-header"><strong>Diving48</strong></td>
+              <td>Softmax</td><td>63.49</td><td>74.12</td><td>64.16</td><td>65.36</td><td>68.48</td><td>71.49</td><td>69.71</td><td>72.07</td><td>59.86</td><td>66.15</td>
+            </tr>
+            <tr>
+              <td>EOS</td><td class="has-text-green">64.43</td><td class="has-text-red">72.80</td><td class="has-text-red">62.91</td><td class="has-text-red">64.94</td><td class="has-text-green">68.64</td><td class="has-text-green">74.60</td><td class="has-text-orange">69.71</td><td class="has-text-green">75.06</td><td class="has-text-green">60.36</td><td class="has-text-green">67.43</td>
+            </tr>
+            <tr>
+              <td>GC</td><td class="has-text-green">65.01</td><td class="has-text-green">76.32</td><td class="has-text-green">64.89</td><td class="has-text-green">69.36</td><td class="has-text-green">70.18</td><td class="has-text-green">75.82</td><td class="has-text-green">71.38</td><td class="has-text-green">76.01</td><td class="has-text-green">60.63</td><td class="has-text-green">69.13</td>
+            </tr>
+            <tr class="is-selected">
+              <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>68.83</strong></td><td class="has-text-green"><strong>78.58</strong></td><td class="has-text-green"><strong>66.22</strong></td><td class="has-text-green"><strong>70.29</strong></td><td class="has-text-green"><strong>71.28</strong></td><td class="has-text-green"><strong>76.55</strong></td><td class="has-text-green"><strong>72.28</strong></td><td class="has-text-green"><strong>76.32</strong></td><td class="has-text-green"><strong>63.46</strong></td><td class="has-text-green"><strong>71.04</strong></td>
+            </tr>
+             <!-- SSv2 -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>SSv2</strong></td>
+            <td>Softmax</td><td>62.11</td><td>74.08</td><td>62.29</td><td>69.61</td><td>70.39</td><td>77.05</td><td>73.02</td><td>78.80</td><td>60.72</td><td>69.35</td>
+          </tr>
+          <tr>
+            <td>EOS</td><td class="has-text-green">62.97</td><td class="has-text-red">73.84</td><td class="has-text-green">65.08</td><td class="has-text-green">69.90</td><td class="has-text-green">71.56</td><td class="has-text-green">79.60</td><td class="has-text-green">73.74</td><td class="has-text-green">81.18</td><td class="has-text-green">61.53</td><td class="has-text-green">70.38</td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-green">62.47</td><td class="has-text-green">76.24</td><td class="has-text-green">64.06</td><td class="has-text-green">70.89</td><td class="has-text-red">69.20</td><td class="has-text-green">77.62</td><td class="has-text-red">70.47</td><td class="has-text-red">76.92</td><td class="has-text-red">59.26</td><td class="has-text-green">70.20</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>63.37</strong></td><td class="has-text-green"><strong>77.88</strong></td><td class="has-text-green"><strong>66.56</strong></td><td class="has-text-green"><strong>73.52</strong></td><td class="has-text-green"><strong>72.18</strong></td><td class="has-text-green"><strong>81.56</strong></td><td class="has-text-green"><strong>74.98</strong></td><td class="has-text-green"><strong>82.96</strong></td><td class="has-text-green"><strong>62.12</strong></td><td class="has-text-green"><strong>73.18</strong></td>
+          </tr>
+          <!-- NTURGBD -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>NTURGBD</strong></td>
+            <td>Softmax</td><td>88.31</td><td>91.58</td><td>79.90</td><td>81.45</td><td>87.76</td><td>91.44</td><td>88.35</td><td>91.30</td><td>81.45</td><td>84.83</td>
+          </tr>
+          <tr>
+            <td>EOS</td><td class="has-text-red">87.63</td><td class="has-text-green">91.86</td><td class="has-text-green">80.10</td><td class="has-text-green">82.18</td><td class="has-text-green">88.17</td><td class="has-text-green">91.89</td><td class="has-text-green">88.96</td><td class="has-text-green">92.19</td><td class="has-text-red">81.34</td><td class="has-text-green">85.11</td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-green">89.07</td><td class="has-text-green">92.40</td><td class="has-text-green">81.78</td><td class="has-text-green">81.51</td><td class="has-text-green">89.30</td><td class="has-text-red">89.37</td><td class="has-text-green">88.94</td><td class="has-text-red">88.63</td><td class="has-text-green">81.93</td><td class="has-text-red">84.03</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>89.97</strong></td><td class="has-text-green"><strong>95.54</strong></td><td class="has-text-green"><strong>82.95</strong></td><td class="has-text-green"><strong>86.53</strong></td><td class="has-text-green"><strong>89.78</strong></td><td class="has-text-green"><strong>94.31</strong></td><td class="has-text-green"><strong>89.82</strong></td><td class="has-text-green"><strong>94.26</strong></td><td class="has-text-green"><strong>83.12</strong></td><td class="has-text-green"><strong>88.31</strong></td>
+          </tr>
+          <!-- HMDB51 -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>HMDB51</strong></td>
+            <td>Softmax*</td><td>65.29</td><td>79.68</td><td>64.44</td><td>72.40</td><td>70.76</td><td>81.79</td><td>73.87</td><td>83.33</td><td>62.23</td><td>74.26</td>
+          </tr>
+          <tr>
+            <td>EOS*</td><td class="has-text-green">69.19</td><td class="has-text-green">80.18</td><td class="has-text-green">66.23</td><td class="has-text-green">72.48</td><td class="has-text-green">74.60</td><td class="has-text-red">81.45</td><td class="has-text-green">77.13</td><td class="has-text-green">83.50</td><td class="has-text-green">65.74</td><td class="has-text-green">74.61</td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-red">62.85</td><td class="has-text-red">76.74</td><td class="has-text-red">60.19</td><td class="has-text-red">64.30</td><td class="has-text-red">68.99</td><td class="has-text-red">76.45</td><td class="has-text-red">71.87</td><td class="has-text-red">78.93</td><td class="has-text-red">60.49</td><td class="has-text-red">70.42</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>72.38</strong></td><td class="has-text-green"><strong>85.17</strong></td><td class="has-text-green"><strong>68.87</strong></td><td class="has-text-green"><strong>76.99</strong></td><td class="has-text-green"><strong>77.48</strong></td><td class="has-text-green"><strong>87.94</strong></td><td class="has-text-green"><strong>80.30</strong></td><td class="has-text-green"><strong>89.75</strong></td><td class="has-text-green"><strong>68.79</strong></td><td class="has-text-green"><strong>80.15</strong></td>
+          </tr>
+          <!-- UCF101 -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>UCF101</strong></td>
+            <td>Softmax*</td><td>95.04</td><td>98.32</td><td>80.59</td><td>91.25</td><td>94.55</td><td>98.03</td><td>95.04</td><td>98.32</td><td>88.31</td><td>91.57</td>
+          </tr>
+          <tr>
+            <td>EOS*</td><td class="has-text-red">94.84</td><td class="has-text-green">98.78</td><td class="has-text-green">81.30</td><td class="has-text-red">89.32</td><td class="has-text-green">95.18</td><td class="has-text-green">98.31</td><td class="has-text-green">95.73</td><td class="has-text-green">98.50</td><td class="has-text-green">88.47</td><td class="has-text-green">91.97</td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-red">79.98</td><td class="has-text-red">86.33</td><td class="has-text-red">59.88</td><td class="has-text-red">57.49</td><td class="has-text-red">75.15</td><td class="has-text-red">81.91</td><td class="has-text-red">77.29</td><td class="has-text-red">82.99</td><td class="has-text-red">70.85</td><td class="has-text-red">77.43</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>95.72</strong></td><td class="has-text-green"><strong>99.28</strong></td><td class="has-text-green"><strong>86.82</strong></td><td class="has-text-green"><strong>91.52</strong></td><td class="has-text-green"><strong>95.19</strong></td><td class="has-text-green"><strong>98.89</strong></td><td class="has-text-green"><strong>96.23</strong></td><td class="has-text-green"><strong>99.08</strong></td><td class="has-text-green"><strong>89.01</strong></td><td class="has-text-green"><strong>92.49</strong></td>
+          </tr>
+          </tbody>
+        </table>
+        <div class="content is-small has-text-centered is-centered">
+          <p>* Methods marked with an asterisk were trained for 1K iterations to prevent overfitting on that dataset.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Container for the STRM table (hidden by default) -->
+    <div id="strm-table-content" class="table-content is-hidden">
+      <div class="content has-text-centered">
+        <p>
+          Results for STRM in 5-way 5-shot settings.
+        </p>
+      </div>
+      <div class="table-container">
+        <table class="table is-bordered is-striped is-narrow is-hoverable is-fullwidth results-table">
+          <thead>
+            <tr>
+              <th>Dataset</th><th>OS-Method</th><th>FS ACC</th><th>OS ACC</th><th>AUROC</th><th>AUPR</th><th>OSCR</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Diving48 -->
+            <tr>
+              <td rowspan="4" class="row-header"><strong>Diving48</strong></td>
+              <td>Softmax</td><td>74.74</td><td>52.91</td><td>58.92</td><td>63.25</td><td>63.61</td>
+            </tr>
+            <tr>
+              <td>EOS</td><td class="has-text-red">73.58</td><td class="has-text-green">60.51</td><td class="has-text-green">67.01</td><td class="has-text-green">69.02</td><td class="has-text-green">65.63</td>
+            </tr>
+            <tr>
+              <td>GC</td><td class="has-text-red">73.22</td><td class="has-text-green">53.76</td><td class="has-text-green">71.71</td><td class="has-text-green">72.56</td><td class="has-text-green">66.09</td>
+            </tr>
+            <tr class="is-selected">
+              <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>77.74</strong></td><td class="has-text-green"><strong>64.92</strong></td><td class="has-text-green"><strong>75.73</strong></td><td class="has-text-green"><strong>75.72</strong></td><td class="has-text-green"><strong>70.00</strong></td>
+            </tr>
+            <!-- SSv2 -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>SSv2</strong></td>
+            <td>Softmax</td><td>65.25</td><td>53.98</td><td>61.94</td><td>66.33</td><td>60.77</td>
+          </tr>
+          <tr>
+            <td>EOS</td><td class="has-text-red">63.61</td><td class="has-text-green"><strong>59.91</strong></td><td class="has-text-green">64.29</td><td class="has-text-green">69.09</td><td class="has-text-red">60.65</td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-red">43.05</td><td class="has-text-red">50.68</td><td class="has-text-red">58.15</td><td class="has-text-red">62.45</td><td class="has-text-red">47.06</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>65.51</strong></td><td class="has-text-green">58.99</td><td class="has-text-green"><strong>70.82</strong></td><td class="has-text-green"><strong>73.59</strong></td><td class="has-text-green"><strong>62.52</strong></td>
+          </tr>
+          <!-- NTURGBD -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>NTURGBD</strong></td>
+            <td>Softmax</td><td><strong>95.14</strong></td><td>50.85</td><td>74.69</td><td>78.26</td><td>80.28</td>
+          </tr>
+          <tr>
+            <td>EOS</td><td class="has-text-red">92.08</td><td class="has-text-green">75.80</td><td class="has-text-green">85.74</td><td class="has-text-green">86.32</td><td class="has-text-green">83.30</td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-red">85.71</td><td class="has-text-green">59.29</td><td class="has-text-green">80.27</td><td class="has-text-green">80.02</td><td class="has-text-red">76.84</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-red">93.28</td><td class="has-text-green"><strong>80.76</strong></td><td class="has-text-green"><strong>92.27</strong></td><td class="has-text-green"><strong>91.95</strong></td><td class="has-text-green"><strong>86.11</strong></td>
+          </tr>
+          <!-- HMDB51 -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>HMDB51</strong></td>
+            <td>Softmax</td><td><strong>75.92</strong></td><td>52.18</td><td>70.49</td><td>65.29</td><td>67.34</td>
+          </tr>
+          <tr>
+            <td>EOS</td><td class="has-text-red">75.18</td><td class="has-text-green"><strong>64.99</strong></td><td class="has-text-green">75.18</td><td class="has-text-green">70.58</td><td class="has-text-green"><strong>69.33</strong></td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-red">71.14</td><td class="has-text-red">51.10</td><td class="has-text-green"><strong>78.85</strong></td><td class="has-text-green">73.85</td><td class="has-text-red">65.96</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-red">75.50</td><td class="has-text-green">56.87</td><td class="has-text-green">77.59</td><td class="has-text-green"><strong>75.20</strong></td><td class="has-text-green">69.11</td>
+          </tr>
+          <!-- UCF101 -->
+          <tr>
+            <td rowspan="4" class="row-header"><strong>UCF101</strong></td>
+            <td>Softmax</td><td>95.48</td><td>51.20</td><td>86.79</td><td>89.39</td><td>87.40</td>
+          </tr>
+          <tr>
+            <td>EOS</td><td class="has-text-red">95.05</td><td class="has-text-green"><strong>75.71</strong></td><td class="has-text-green">90.35</td><td class="has-text-green">92.42</td><td class="has-text-red">86.87</td>
+          </tr>
+          <tr>
+            <td>GC</td><td class="has-text-green">95.58</td><td class="has-text-green">63.21</td><td class="has-text-green">93.35</td><td class="has-text-green"><strong>95.34</strong></td><td class="has-text-red">83.71</td>
+          </tr>
+          <tr class="is-selected">
+            <td><strong>FR-Disc</strong></td><td class="has-text-green"><strong>95.76</strong></td><td class="has-text-green">63.47</td><td class="has-text-green"><strong>93.60</strong></td><td class="has-text-green">94.56</td><td class="has-text-green"><strong>88.37</strong></td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+
+
+<section class="section" id="BibTeX">
+  <div class="container is-max-desktop content">
+    <h2 class="title">BibTeX</h2>
+    <pre><code>@article{fsosar26,
+  author    = {Anonymous1, Anonymous2, Anonymous3},
+  title     = {Few-Shot Open-Set Action Recognition: Bekchmark and Models},
+  conference   = {WACV},
+  year      = {2026},
+}</code></pre>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container">
+    <!--
+    <div class="content has-text-centered">
+      <a class="icon-link"
+         href="static/videos/nerfies_paper.pdf">
+        <i class="fas fa-file-pdf"></i>
+      </a>
+      <a class="icon-link" href="https://github.com/keunhong" class="external-link" disabled>
+        <i class="fab fa-github"></i>
+      </a>
+    </div>
+    -->
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <!--<p>
+            This website is licensed under a <a rel="license"
+                                                href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+          </p>-->
+          <p>
+            This page was built using the Academic Project Page Template which was adopted from the <a
+              href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> project page.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- JavaScript for Tabbed Tables -->
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const tabs = document.querySelectorAll('.tabs li');
+    const tabContentBoxes = document.querySelectorAll('.table-content');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Deactivate all tabs
+        tabs.forEach(item => item.classList.remove('is-active'));
+        // Activate the clicked tab
+        tab.classList.add('is-active');
+
+        const target = tab.dataset.target;
+
+        // Hide all content boxes
+        tabContentBoxes.forEach(box => {
+          box.classList.add('is-hidden');
+        });
+        // Show the target content box
+        document.getElementById(target).classList.remove('is-hidden');
+      });
+    });
+  });
+</script>
+
+<!-- JavaScript for Video Navigation -->
+<script>
+  // Wait until the page is fully loaded
+  document.addEventListener('DOMContentLoaded', () => {
+
+    // Get the video element and all the navigation links
+    const video = document.getElementById('paperVideo');
+    const navLinks = document.querySelectorAll('.video-nav a');
+
+    // Add a click event listener to each navigation link
+    navLinks.forEach(link => {
+      link.addEventListener('click', function(event) {
+        // Prevent the link from navigating away
+        event.preventDefault();
+
+        // Get the time in seconds from the 'data-time' attribute
+        const time = parseFloat(this.dataset.time);
+
+        // --- The Core Logic ---
+        // 1. Set the video's current time to the new time
+        video.currentTime = time;
+        // 2. Play the video
+        video.play();
+        // ----------------------
+
+        // --- Update Active State for Styling ---
+        // 1. Remove the 'is-active' class from all links
+        navLinks.forEach(otherLink => {
+          otherLink.classList.remove('is-active');
+        });
+        // 2. Add the 'is-active' class to the one that was just clicked
+        this.classList.add('is-active');
+      });
+    });
+  });
+</script>
+
+
+</body>
+</html>

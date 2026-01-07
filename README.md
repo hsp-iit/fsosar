@@ -11,11 +11,11 @@
 
 **This work has been submitted for review at the ICPR 2026 conference.**
 
-This repository contains the implementation of state-of-the-art few-shot learning methods adapted for open-set action recognition. The codebase supports various approaches to handle unknown classes during few-shot video classification tasks.
+This repository contains the implementation of few-shot learning methods adapted for open-set action recognition. The codebase supports various approaches to handle unknown classes during few-shot video classification tasks.
 
 ## 🎯 Supported Methods
 
-The repository implements state-of-the-art few-shot action recognition models:
+The repository implements few-shot action recognition models:
 
 - **SAFSAR** - Self-Attention Few-Shot Action Recognition
 - **STRM** - Spatiotemporal Relational Matching

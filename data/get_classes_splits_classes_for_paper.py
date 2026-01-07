@@ -1,4 +1,6 @@
-# read splits/diving/testlist07.txt and splits/diving/trainlist07.txt, where there is a value for each line
+# SPDX-FileCopyrightText: 2025 Humanoid Sensing and Perception, Istituto Italiano di Tecnologia
+# SPDX-License-Identifier: BSD-3-Clause
+
 
 import os
 import numpy as np

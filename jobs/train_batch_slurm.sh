@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Humanoid Sensing and Perception, Istituto Italiano di Tecnologia
+# SPDX-License-Identifier: BSD-3-Clause
+
 #!/bin/bash
 # This script is called by submit_batch_slurm.sh
 # All SLURM parameters are controlled by the submission script

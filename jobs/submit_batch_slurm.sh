@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Humanoid Sensing and Perception, Istituto Italiano di Tecnologia
+# SPDX-License-Identifier: BSD-3-Clause
+
 #!/bin/bash
 
 # Function to check if element exists in array

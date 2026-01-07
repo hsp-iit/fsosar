@@ -7,7 +7,7 @@ import tqdm
 from PIL import Image
 import zipfile
 import io
-from videotransforms.video_transforms import Compose, Resize, RandomCrop, RandomRotation, ColorJitter, RandomHorizontalFlip, CenterCrop, TenCrop
+from torchvision.transforms import Compose, Resize, RandomCrop, CenterCrop
 import pickle
 from transformers import AutoImageProcessor
 import copy

@@ -337,7 +337,7 @@ class VideoDataset(torch.utils.data.Dataset):
                 imgs = torch.stack(imgs)
 
         # Load also skeleton if available
-        poses = 0.  # none would give errors later
+        poses = torch.zeros(16, 30, 3)  # none would give errors later
         if (Path(paths[0]).parent / "poses.npy").exists():
             poses = np.load(Path(paths[0]).parent / "poses.npy")
             poses = torch.FloatTensor(poses)

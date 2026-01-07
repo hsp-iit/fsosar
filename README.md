@@ -69,6 +69,12 @@ The environment includes:
 - OpenCV, matplotlib, einops
 - imageio
 
+### License Information
+
+This project is licensed under the **BSD 3-Clause License**. See [LICENSE](LICENSE) for details.
+
+For information about dependencies and their licenses, see [LICENSE_DEPENDENCIES.md](LICENSE_DEPENDENCIES.md).
+
 ---
 
 ## 🚀 Usage
@@ -159,28 +165,61 @@ scontrol show job <job_id>      # Show detailed job info
 
 ```
 fsosar/
+├── LICENSE                     # BSD 3-Clause License
+├── LICENSE_DEPENDENCIES.md     # Comprehensive license report for all dependencies
+├── README.md                   # This file
+├── environment.yaml            # Conda environment specification
+├── methods.png                 # Methods diagram
 ├── configs/                    # Configuration files for models and datasets
 │   ├── SAFSAR.json
 │   ├── STRM.json
 │   ├── SSv2.json
 │   ├── HMDB51.json
-│   └── ...
+│   ├── UCF101.json
+│   ├── Diving48.json
+│   ├── NTURGBD120.json
+│   └── README.md
 ├── models/                     # Model implementations
+│   ├── __init__.py
 │   ├── safsar.py
 │   └── strm.py
 ├── jobs/                       # SLURM job scripts
 │   ├── train_single_slurm.sh   # Single job submission
 │   ├── train_batch_slurm.sh    # Batch worker script
-│   └── submit_batch_slurm.sh   # Batch submission manager
+│   ├── submit_batch_slurm.sh   # Batch submission manager
+│   └── download_checkpoints.sh # Download pretrained checkpoints
 ├── splits/                     # Dataset split files
+│   ├── diving/
+│   ├── hmdb_ARN/
+│   ├── ucf_ARN/
+│   ├── ssv2_OTAM/
+│   ├── kinetics_CMN/
+│   └── nturgbd/
 ├── data/                       # Data preparation scripts
-├── videotransforms/            # Video augmentation utilities
+│   ├── prepare_diving48.py
+│   ├── extract_images_from_videos.py
+│   ├── create_train_test_diving_ntu.py
+│   ├── get_classes_splits_classes_for_paper.py
+│   ├── visualize_confusion_matrix.py
+│   ├── visualize_confidence_histograms.py
+│   └── visualize_features.py
+├── videotransforms/            # Video augmentation utilities (custom module)
+│   ├── video_transforms.py
+│   ├── functional.py
+│   ├── stack_transforms.py
+│   └── ...
 ├── data_analysis/              # Analysis and visualization outputs
+│   ├── confusion_matrices/
+│   ├── histograms/
+│   ├── saved_features/
+│   └── confidence_scores/
+├── checkpoints/                # Saved model checkpoints
+│   ├── SAFSAR/
+│   └── strm/
 ├── train.py                    # Main training script
 ├── videoloader.py              # Dataset loading utilities
 ├── utils.py                    # Helper functions
-├── environment.yaml            # Conda environment specification
-└── methods.png                 # Methods diagram
+└── log_filter.py               # Log filtering utility
 ```
 
 ---
@@ -218,11 +257,11 @@ logs/<shot>_<model>_<os_loss>_<dataset>_<timestamp>/
 
 ## 📊 Analysis and Visualization
 
-Several visualization scripts are provided:
+Several visualization scripts are provided in the `data/` directory:
 
-- `visualize_confusion_matrix.py` - Generate confusion matrices
-- `visualize_confidence_histograms.py` - Analyze prediction confidence
-- `visualize_features.py` - t-SNE/UMAP feature space visualization
+- `data/visualize_confusion_matrix.py` - Generate confusion matrices
+- `data/visualize_confidence_histograms.py` - Analyze prediction confidence
+- `data/visualize_features.py` - t-SNE/UMAP feature space visualization
 
 Results are saved to the `data_analysis/` directory.
 
@@ -236,7 +275,12 @@ If you use this code for your research, please cite our paper (citation will be 
 
 ## 📝 License
 
-[Add your license information here]
+This project is licensed under the **BSD 3-Clause License**.  
+Copyright (c) 2025, Istituto Italiano di Tecnologia
+
+See [LICENSE](LICENSE) for the full license text.
+
+All dependencies use permissive licenses compatible with BSD 3-Clause. For detailed information about third-party licenses, see [LICENSE_DEPENDENCIES.md](LICENSE_DEPENDENCIES.md).
 
 ---
 

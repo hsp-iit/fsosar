@@ -98,12 +98,6 @@ The environment includes:
 - OpenCV, matplotlib, einops
 - imageio
 
-### License Information
-
-This project is licensed under the **BSD 3-Clause License**. See [LICENSE](LICENSE) for details.
-
-For information about dependencies and their licenses, see [LICENSE_DEPENDENCIES.md](LICENSE_DEPENDENCIES.md).
-
 ---
 
 ## 🚀 Usage

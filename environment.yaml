@@ -7,7 +7,10 @@ channels:
   - nvidia
   - conda-forge
 dependencies:
-  - python
+  - python=3.10
+  - pytorch
+  - torchvision
+  - torchaudio
   - transformers
   - scikit-learn
   - wandb

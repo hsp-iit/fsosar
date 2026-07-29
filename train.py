@@ -18,8 +18,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 from utils import is_address_in_use
 import copy
-from models import SAFSAR, STRM, TRX, OTAM
-from models.d2st import D2ST
+from models import SAFSAR, STRM
 from utils import visual_debug, set_seeds, save_confusion_matrix, save_confidence_scores
 import gc
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
@@ -27,7 +26,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Remove useless warnings
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script")
-    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR", "D2ST", "TRX", "OTAM"], help='Model name')
+    parser.add_argument('--model', type=str, required=True, choices=["STRM", "SAFSAR"], help='Model name')
     parser.add_argument('--data', type=str, required=True, choices=["SSv2", "HMDB51", "UCF101", "NTURGBD120", "Diving48"], help='Data name')
     parser.add_argument('--os_loss', type=str, required=True, choices=["softmax", "eos", "discriminator", "gc"], help='Open set loss')
     return parser.parse_args()
@@ -118,12 +117,6 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
         model = SAFSAR(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     elif model_name == "STRM":
         model = STRM(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
-    elif model_name == "D2ST":
-        model = D2ST(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
-    elif model_name == "TRX":
-        model = TRX(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
-    elif model_name == "OTAM":
-        model = OTAM(config, disc=os_loss=="discriminator", gc=os_loss=="gc", dp=config["dp"])
     else:
         raise ValueError(f"Unknown model: {model_name}")
     
@@ -341,13 +334,9 @@ def main(rank, world_size, model_name, data_name, os_loss, port):
                 if model_name == "STRM":
                     scaled_similarity_matrix = torch.exp(similarity_matrix)
                     # acc_target = all_labels
-                elif model_name in ["SAFSAR", "D2ST"]:
+                elif model_name == "SAFSAR":
                     scaled_similarity_matrix = (similarity_matrix + 1)/2
                     # acc_target = true_target_labels
-                elif model_name in ["TRX", "OTAM"]:
-                    # TRX and OTAM similarity matrices are already in logit space, apply softmax for scaling
-                    scaled_similarity_matrix = torch.nn.functional.softmax(similarity_matrix, dim=-1)
-                    # acc_target = all_labels
                 if os_loss == "gc":
                     os_target = all_labels!=(config["way"]-1)
                 else:

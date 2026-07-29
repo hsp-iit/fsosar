@@ -155,23 +155,31 @@ def setup(rank, world_size, set_seeds, port):
 
 
 def load_configs(model_name, data_name):
+    # Known author machines keep their original defaults; anywhere else (e.g. a fresh
+    # clone, CI, or a reviewer's machine) falls back to env vars / cwd-relative paths
+    # so the script doesn't crash with an UnboundLocalError before training starts.
     cwd = os.getcwd()
-    if "/home/sberti" in cwd:
+    if cwd == "/home/sberti" or cwd.startswith("/home/sberti/"):
         local_or_server = "local"
         datasets_path = "/home/sberti"
         host = "local"
         log_path = "/home/sberti/logs"
-    elif "iit.local" in cwd:
+    elif cwd == "/home/iit.local/sberti" or cwd.startswith("/home/iit.local/sberti/"):
         local_or_server = "server"
         datasets_path = "/home/sberti_datasets"
         host = "gnode04"
         log_path = "."
-    elif "/fastwork/sberti" in cwd:
+    elif cwd == "/fastwork/sberti" or cwd.startswith("/fastwork/sberti/"):
         local_or_server = "server"
         datasets_path = "/fastwork/sberti"
         host = "franklin"
         log_path = "/fastwork/sberti"
-        
+    else:
+        local_or_server = os.environ.get("FSOSAR_CONFIG", "server")
+        datasets_path = os.environ.get("FSOSAR_DATASETS_PATH", cwd)
+        host = os.environ.get("FSOSAR_HOST", socket.gethostname())
+        log_path = os.environ.get("FSOSAR_LOG_PATH", cwd)
+
     model_config_path = f"configs/{model_name}.json"
     data_config_path = f"configs/{data_name}.json"
     train_config_path = f"configs/{local_or_server}_config.json"
@@ -444,7 +452,7 @@ def save_confidence_scores(similarity_matrix, target_labels, model_name, dataset
     Args:
         similarity_matrix: Predictions similarity matrix
         target_labels: Labels for query samples (-1 for unknown)
-        model_name: Name of the model (e.g., 'SAFSAR', 'STRM', 'D2ST')
+        model_name: Name of the model (e.g., 'SAFSAR', 'STRM')
         dataset_name: Name of the dataset (e.g., 'HMDB51', 'UCF101')
         os_loss_name: Name of the open set loss (e.g., 'softmax', 'discriminator')
         logits: Model logits (for discriminator-based confidence)
@@ -478,10 +486,8 @@ def save_confidence_scores(similarity_matrix, target_labels, model_name, dataset
         # For implicit methods, use max similarity as confidence
         if model_name == "STRM":
             confidence_scores = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
-        elif model_name in ["SAFSAR", "D2ST"]:
+        elif model_name == "SAFSAR":
             confidence_scores = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
-        elif model_name in ["TRX", "OTAM"]:
-            confidence_scores = torch.nn.functional.softmax(similarity_matrix, dim=-1).max(dim=-1)[0].detach().cpu().numpy()
     elif os_loss_name == "discriminator" and logits is not None:
         # For explicit discriminator method
         disc_prob = logits["disc_prob"]
@@ -599,10 +605,8 @@ def save_confusion_matrix(similarity_matrix, support_labels, target_labels, batc
         # For implicit methods, use max similarity as os_prob
         if model_name == "STRM":
             os_prob = torch.exp(similarity_matrix).max(dim=-1)[0].detach().cpu().numpy()
-        elif model_name in ["SAFSAR", "D2ST"]:
+        elif model_name == "SAFSAR":
             os_prob = ((similarity_matrix + 1) / 2).max(dim=-1)[0].detach().cpu().numpy()
-        elif model_name in ["TRX", "OTAM"]:
-            os_prob = torch.nn.functional.softmax(similarity_matrix, dim=-1).max(dim=-1)[0].detach().cpu().numpy()
     elif os_loss_name == "discriminator" and logits is not None:
         # For explicit discriminator method
         os_prob = logits.get("disc_prob", None)

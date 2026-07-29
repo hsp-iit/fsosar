@@ -73,6 +73,7 @@ Four different approaches for handling open-set scenarios:
 ### Prerequisites
 
 - Conda or Miniconda
+- Python 3.10 or above
 - CUDA-compatible GPU (recommended for training)
 
 ### Environment Setup
@@ -100,7 +101,37 @@ The environment includes:
 
 ---
 
+## 📥 Dataset Preparation
+
+This repository does not redistribute the benchmark datasets. Download each dataset from its
+official source (Diving48, SSv2, HMDB51, UCF101, NTURGBD120), then use the helper scripts in
+`data/` to extract per-video frames into a `<dataset>/images/<class>/<video_id>/` layout:
+
+- `data/prepare_diving48.py` / `data/extract_images_from_videos.py` - extract equidistant frames from raw videos into the expected folder structure
+- `data/ssv2_move_videos_inside_class_folders.py` - reorganize SSv2 videos into per-class folders
+- `data/create_train_test_diving_ntu.py` - build train/test split files for Diving48/NTURGBD120
+
+The scripts contain example paths at the top (`if __name__ == '__main__':`) that must be edited to
+point at your local dataset location before running them. The resulting `images/` folder is what
+`configs/<Dataset>.json` -> `path` (combined with `FSOSAR_DATASETS_PATH`, see below) must point to.
+Few-shot train/test/val class splits are already provided under `splits/`.
+
+---
+
 ## 🚀 Usage
+
+### Path configuration
+
+`utils.load_configs` resolves dataset and log locations automatically on the author's own machines.
+On any other machine (a fresh clone, CI, or your own workstation) it falls back to these environment
+variables, so set them before training:
+
+```bash
+export FSOSAR_DATASETS_PATH=/path/to/datasets   # parent dir containing e.g. Diving48/images (default: cwd)
+export FSOSAR_LOG_PATH=/path/to/logs            # where logs/checkpoints are written (default: cwd)
+export FSOSAR_CONFIG=server                     # "server" (real training) or "local" (author's debug/eval config); default: server
+export FSOSAR_HOST=my-machine                   # free-form tag used in checkpoint/log naming (default: hostname)
+```
 
 ### Single Training Job
 
@@ -201,7 +232,8 @@ fsosar/
 │   ├── UCF101.json
 │   ├── Diving48.json
 │   ├── NTURGBD120.json
-│   └── README.md
+│   ├── local_config.json       # Author's local debug/eval config (FSOSAR_CONFIG=local)
+│   └── server_config.json      # Training config used by default (FSOSAR_CONFIG=server)
 ├── models/                     # Model implementations
 │   ├── __init__.py
 │   ├── safsar.py
@@ -226,17 +258,12 @@ fsosar/
 │   ├── visualize_confusion_matrix.py
 │   ├── visualize_confidence_histograms.py
 │   └── visualize_features.py
-├── videotransforms/            # Video augmentation utilities (custom module)
-│   ├── video_transforms.py
-│   ├── functional.py
-│   ├── stack_transforms.py
-│   └── ...
-├── data_analysis/              # Analysis and visualization outputs
+├── data_analysis/              # Analysis and visualization outputs (created at runtime)
 │   ├── confusion_matrices/
 │   ├── histograms/
 │   ├── saved_features/
 │   └── confidence_scores/
-├── checkpoints/                # Saved model checkpoints
+├── checkpoints/                # Saved model checkpoints (created at runtime)
 │   ├── SAFSAR/
 │   └── strm/
 ├── train.py                    # Main training script

@@ -90,9 +90,6 @@ class VideoDataset(torch.utils.data.Dataset):
             self.processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
             self.transform["train"] = self.custom_transform
             self.transform["test"] = self.custom_transform
-        elif preprocessing in ["TRX", "OTAM"]:
-            # TRX and OTAM use standard ResNet preprocessing (standard transforms are already set)
-            pass
 
 
         # Get complex names if they exists

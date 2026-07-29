@@ -1,6 +1,9 @@
 # Few-Shot Open-Set Action Recognition (FSOSAR)
 
 <div align="center">
+
+[Project Page](https://hsp-iit.github.io/fsosar/) • [arXiv](https://arxiv.org/abs/2603.04125)
+
   <img src="methods.png" alt="FSOSAR Methods Overview" width="800"/>
   <p><i>Overview of implicit, garbage class, and discriminator methods for few-shot open-set action recognition</i></p>
 </div>
@@ -41,6 +44,15 @@ Combined results for SAFSAR in 5-way 1-shot and 5-shot settings:
 **This work has been submitted for review at the ICPR 2026 conference.**
 
 This repository contains the implementation of few-shot learning methods adapted for open-set action recognition. The codebase supports various approaches to handle unknown classes during few-shot video classification tasks.
+
+## 🤗 Pretrained Checkpoints & Benchmark
+
+FR-Disc checkpoints (SAFSAR, STRM) and the FSOS-AR benchmark splits are available on the Hugging Face Hub, collected here:
+
+**[HSP-IIT/fsos-ar-benchmark collection](https://huggingface.co/collections/HSP-IIT/fsos-ar-few-shot-open-set-action-recognition-icpr-2026-6a69c9ee8f214bd8f2ab0007)**
+
+- Dataset splits: [`HSP-IIT/fsos-ar-benchmark`](https://huggingface.co/datasets/HSP-IIT/fsos-ar-benchmark) (`load_dataset("HSP-IIT/fsos-ar-benchmark", "<config>")`)
+- Model checkpoints: 8 SAFSAR + 3 STRM repos, one per dataset/shot (see the collection above)
 
 ## 🎯 Supported Methods
 
